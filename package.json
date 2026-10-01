@@ -1,0 +1,66 @@
+{
+  "name": "devowatch",
+  "productName": "DevoWatch",
+  "version": "1.0.0",
+  "description": "DevoWatch - portable desktop monitoring for URLs/IPs, HTTPS, SSL certificate expiry and DNS records, with live dashboard, backup & sync.",
+  "main": "main.js",
+  "author": {
+    "name": "DevoWatch",
+    "url": "https://devolity.com"
+  },
+  "homepage": "https://devolity.com",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "postinstall": "node scripts/copy-assets.js",
+    "icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-icon.ps1",
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:portable": "electron-builder --win portable",
+    "dist:zip": "electron-builder --win zip"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "chart.js": "^4.4.4",
+    "ping": "^0.4.4",
+    "sql.js": "^1.11.0"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.devolity.devowatch",
+    "productName": "DevoWatch",
+    "copyright": "Copyright © 2026 DevoWatch (https://devolity.com)",
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "renderer/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "renderer/img/icon.png",
+      "artifactName": "DevoWatch-${version}-win-x64.${ext}"
+    },
+    "portable": {
+      "artifactName": "DevoWatch-Portable.exe"
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
+    }
+  },
+  "allowScripts": {
+    "electron@44.5.1": true
+  }
+}

@@ -1,0 +1,54 @@
+# --- Dependencies ---
+node_modules/
+
+# --- Build output (electron-builder) ---
+dist/
+out/
+
+# --- Generated at install time (scripts/copy-assets.js copies it from node_modules) ---
+renderer/js/chart.umd.js
+
+# --- Runtime data: never commit (config, users, check history, credentials, logs, backups) ---
+# Anchored with "/" so the source folder src/backup/ is NOT ignored.
+/data/
+/backup/
+*.corrupt-*
+*.tmp
+server/telemetry-collector/data/
+
+# --- Local administrator policy (deploy per machine/fleet, not from source) ---
+/policy.json
+
+# --- Secrets: code-signing certificates and environment files ---
+*.pfx
+*.p12
+*.pem
+*.key
+*.cer
+.env
+.env.*
+!.env.example
+
+# --- Logs and debug output ---
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+coverage/
+
+# --- Editor / IDE ---
+.history/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# --- OS files ---
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
