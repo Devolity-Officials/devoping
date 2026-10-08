@@ -4,11 +4,11 @@
 // - The collection endpoint is DEFAULT_ENDPOINT below (built into the app); administrators can
 //   override it or force telemetry off with <install dir>/policy.json:
 //     { "telemetry": false }   or   { "telemetry": true, "telemetryEndpoint": "https://..." }
-//   or the environment variable DEVOWATCH_TELEMETRY=0.
+//   or the environment variable DEVOPING_TELEMETRY=0 (DEVOWATCH_TELEMETRY remains supported).
 // - Only aggregate counters and coarse environment info are sent: never hostnames, URLs, IPs,
 //   usernames, error messages or file paths (enforced by sanitizeProps below).
 // - The install ID is random (not derived from hardware) and is discarded when telemetry is disabled.
-// - Events are queued in data/telemetry-queue.json and POSTed over HTTPS in batches.
+// - Events are queued in appdata/telemetry-queue.json and POSTed over HTTPS in batches.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -47,8 +47,8 @@ let cachedPolicy = null;
 function policy() {
   if (cachedPolicy) return cachedPolicy;
   const out = { locked: false, enabled: null, endpoint: null };
-  if (process.env.DEVOWATCH_TELEMETRY === '0') {
-    cachedPolicy = { ...out, locked: true, enabled: false, source: 'environment variable DEVOWATCH_TELEMETRY=0' };
+  if (process.env.DEVOPING_TELEMETRY === '0' || process.env.DEVOWATCH_TELEMETRY === '0') {
+    cachedPolicy = { ...out, locked: true, enabled: false, source: 'environment variable telemetry opt-out' };
     return cachedPolicy;
   }
   try {
@@ -153,7 +153,6 @@ function usageEvent() {
       hosts_with_ports: hosts.filter((h) => Array.isArray(h.ports) && h.ports.length).length,
       ports_monitored: hosts.reduce((n, h) => n + (Array.isArray(h.ports) ? h.ports.length : 0), 0),
       global_dns: (config.getSettings().dnsServers || []).length > 0,
-      cloud_backup: (config.getSettings().backup || {}).cloudProvider || 'none',
       ...counters,
     }),
   };
@@ -164,7 +163,7 @@ function payload(events) {
     schema: SCHEMA,
     installId: effective().settings.installId,
     sentAt: new Date().toISOString(),
-    app: { name: 'DevoWatch', version: appInfo.version, electron: appInfo.electron },
+    app: { name: 'Devoping', version: appInfo.version, electron: appInfo.electron },
     os: { platform: process.platform, release: os.release(), arch: process.arch, locale: appInfo.locale },
     events,
   };
@@ -176,22 +175,22 @@ function faroPayload(events) {
   const iso = (ts) => new Date(ts).toISOString();
   return {
     meta: {
-      sdk: { name: 'devowatch-telemetry', version: String(SCHEMA) },
-      app: { name: 'DevoWatch', version: appInfo.version, environment: appInfo.environment },
+      sdk: { name: 'devoping-telemetry', version: String(SCHEMA) },
+      app: { name: 'Devoping', version: appInfo.version, environment: appInfo.environment },
       user: { id: installId },
       session: { id: sessionId },
-      page: { url: 'app://devowatch/' },
+      page: { url: 'app://devoping/' },
       browser: { name: 'Electron', version: appInfo.electron, os: `${process.platform} ${os.release()} ${process.arch}`, language: appInfo.locale },
       view: { name: 'desktop' },
     },
     events: events.map((e) => ({
       name: e.name,
-      domain: 'devowatch',
+      domain: 'devoping',
       attributes: Object.fromEntries(Object.entries(e.props || {}).map(([k, v]) => [k, String(v)])),
       timestamp: iso(e.ts),
     })),
     measurements: events.filter((e) => e.name === 'usage').map((e) => ({
-      type: 'devowatch_usage',
+      type: 'devoping_usage',
       values: Object.fromEntries(Object.entries(e.props).filter(([, v]) => typeof v !== 'string').map(([k, v]) => [k, Number(v)])),
       timestamp: iso(e.ts),
     })),
@@ -217,7 +216,7 @@ async function flush({ force = false, timeoutMs = 15000 } = {}) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': `DevoWatch/${appInfo.version} (+https://devolity.com)`,
+        'User-Agent': `Devoping/${appInfo.version} (+https://devolity.com)`,
         ...(faro ? { 'X-Faro-Session-Id': sessionId } : {}),
       },
       body: JSON.stringify(faro ? faroPayload(events) : payload(events)),

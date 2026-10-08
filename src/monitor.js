@@ -68,7 +68,14 @@ async function runHostChecks(host) {
     setStage(host.id, 'dns');
     const ipLookup = hostname ? await resolveHostIp(hostname) : null;
     setStage(host.id, 'http');
-    const res = await checkHttp(host.url);
+    const res = await checkHttp(host.url, {
+      method: host.method,
+      headers: host.headers,
+      body: host.body,
+      expectStatus: host.expectStatus,
+      bodyMatch: host.bodyMatch,
+      followRedirects: host.followRedirects !== false,
+    });
     const row = {
       hostId: host.id,
       hostName: host.name,

@@ -1,6 +1,6 @@
-// DevoWatch telemetry collector - reference server (Node.js 18+, no dependencies).
+// Devoping telemetry collector - reference server (Node.js 18+, no dependencies).
 //
-//   POST /v1/events   JSON batch from the DevoWatch app -> appended to data/events-YYYY-MM-DD.ndjson
+//   POST /v1/events   JSON batch from the Devoping app -> appended to data/events-YYYY-MM-DD.ndjson
 //   GET  /healthz     liveness probe
 //
 // Run behind an HTTPS reverse proxy (Caddy/nginx); this process itself only listens on localhost.
@@ -132,4 +132,4 @@ const server = http.createServer((req, res) => {
 
 server.requestTimeout = 15000;
 server.headersTimeout = 10000;
-server.listen(PORT, HOST, () => console.log(`DevoWatch telemetry collector listening on http://${HOST}:${PORT} (data: ${DATA_DIR})`));
+server.listen(PORT, HOST, () => console.log(`Devoping telemetry collector listening on http://${HOST}:${PORT} (data: ${DATA_DIR})`));

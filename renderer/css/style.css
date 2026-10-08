@@ -1,4 +1,4 @@
-/* DevoWatch (https://devolity.com) - design tokens: shadcn-style HSL theme, dark + light. */
+/* Devoping (https://devolity.com) - design tokens: shadcn-style HSL theme, dark + light. */
 :root,
 [data-theme="dark"] {
   color-scheme: dark;
@@ -580,6 +580,48 @@ input:focus, select:focus {
 .port-presets .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .host-form .error-text, .host-form .form-actions { padding: 0 16px; }
 .form-actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+
+textarea {
+  min-height: 64px;
+  padding: 8px 11px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--input));
+  border-radius: calc(var(--radius) - 4px);
+  resize: vertical;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+textarea::placeholder { color: hsl(var(--muted-foreground) / 0.7); }
+textarea:focus { outline: none; border-color: hsl(var(--ring) / 0.7); box-shadow: 0 0 0 3px hsl(var(--ring) / 0.18); }
+
+.advanced-http { padding: 0 16px; margin-top: 4px; }
+.advanced-http > summary { cursor: pointer; font-size: 12px; font-weight: 600; color: hsl(var(--foreground)); padding: 6px 0; user-select: none; }
+.advanced-http[open] > summary { margin-bottom: 8px; }
+.advanced-http .form-grid { padding: 0; grid-template-columns: 1fr 1fr; }
+
+.report-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.modal-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; margin-right: 8px; }
+
+.telnet-output {
+  height: 320px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 12px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: hsl(var(--foreground));
+  background: hsl(var(--secondary) / 0.4);
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 4px);
+}
+.telnet-send { display: flex; gap: 8px; }
+.telnet-send input { flex: 1; }
 
 .import-card { padding-bottom: 14px; }
 .import-card .progress { margin: 0 16px; }

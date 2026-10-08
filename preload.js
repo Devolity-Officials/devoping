@@ -30,6 +30,20 @@ contextBridge.exposeInMainWorld('api', {
   dnsServers: () => ipcRenderer.invoke('dns:servers'),
   dnsLookup: (target, server) => ipcRenderer.invoke('dns:lookup', { target, server }),
 
+  // connectivity test + reports
+  testConnectivity: (target, ports) => ipcRenderer.invoke('tools:test', { target, ports }),
+  exportReport: (scope, format) => ipcRenderer.invoke('report:export', { scope, format }),
+  saveChartPng: (name, dataUrl) => ipcRenderer.invoke('report:saveImage', { name, dataUrl }),
+
+  // telnet console
+  telnetConnect: (target, port) => ipcRenderer.invoke('telnet:connect', { target, port }),
+  telnetSend: (sessionId, data) => ipcRenderer.invoke('telnet:send', { sessionId, data }),
+  telnetDisconnect: (sessionId) => ipcRenderer.invoke('telnet:disconnect', { sessionId }),
+  telnetHistory: () => ipcRenderer.invoke('telnet:history'),
+  telnetClearHistory: () => ipcRenderer.invoke('telnet:clearHistory'),
+  onTelnetLine: (callback) => subscribe('telnet:line', callback),
+  onTelnetClosed: (callback) => subscribe('telnet:closed', callback),
+
   // monitoring activity
   getActivity: () => ipcRenderer.invoke('monitor:activity'),
   checkAll: () => ipcRenderer.invoke('monitor:checkAll'),
@@ -45,17 +59,11 @@ contextBridge.exposeInMainWorld('api', {
   appInfo: () => ipcRenderer.invoke('app:info'),
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
 
-  // backup & sync
+  // backup (local, stored in the portable appdata folder)
   backupStatus: () => ipcRenderer.invoke('backup:status'),
   backupUpdateSettings: (patch) => ipcRenderer.invoke('backup:updateSettings', patch),
-  backupSetProvider: (id, values) => ipcRenderer.invoke('backup:setProvider', { id, values }),
-  backupConnect: (id) => ipcRenderer.invoke('backup:connect', id),
-  backupDisconnect: (id) => ipcRenderer.invoke('backup:disconnect', id),
-  backupTest: () => ipcRenderer.invoke('backup:test'),
   backupSetPassphrase: (passphrase) => ipcRenderer.invoke('backup:setPassphrase', passphrase),
   backupRunLocal: () => ipcRenderer.invoke('backup:runLocal'),
-  backupRunCloud: () => ipcRenderer.invoke('backup:runCloud'),
-  backupListCloud: () => ipcRenderer.invoke('backup:listCloud'),
   backupRestore: (source, name) => ipcRenderer.invoke('backup:restore', { source, name }),
   backupOpenFolder: () => ipcRenderer.invoke('backup:openFolder'),
 

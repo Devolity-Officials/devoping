@@ -2,9 +2,10 @@
   const STAGE_LABELS = { starting: 'Starting', dns: 'DNS', http: 'HTTP', ping: 'Ping', ports: 'Ports' };
   const PAGE_META = {
     dashboard: ['Dashboard', 'Live status of every monitored host'],
-    hosts: ['Hosts', 'Add, edit, import and export monitored targets'],
+    hosts: ['Host / URLs', 'Add, edit, import and export monitored targets'],
     settings: ['Settings', 'Monitoring, global DNS, data and account preferences'],
-    backup: ['Backup & Sync', 'Automatic local backups and cloud backup to S3, Google Drive or OneDrive'],
+    backup: ['Backup', 'Automatic local backups in the portable appdata folder'],
+    telnet: ['Telnet', 'Telnet-style TCP console with persistent history logs'],
   };
 
   const state = {
@@ -14,6 +15,9 @@
     settings: null,
     activity: null,
     editingHostId: null,
+    detailHostId: null,
+    telnetSessionId: null,
+    telnetLoaded: false,
     detailChart: null,
     uiWired: false,
     unsubscribers: [],
@@ -26,7 +30,7 @@
   const $all = (sel) => Array.from(document.querySelectorAll(sel));
   const icon = (name, cls = 'icon') => `<svg class="${cls}"><use href="#i-${name}"/></svg>`;
 
-  // Unexpected UI errors go to data/logs/devowatch.log (capped to avoid log floods).
+  // Unexpected UI errors go to appdata/logs/devoping.log (capped to avoid log floods).
   let reportedErrors = 0;
   function reportError(message) {
     if (reportedErrors++ < 20) window.api.logError(message).catch(() => {});
@@ -121,7 +125,7 @@
   // `persist` saves the choice in config.json so it is part of backups.
   function applyTheme(theme, persist = true) {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem('devowatch-theme', theme);
+    localStorage.setItem('devoping-theme', theme);
     if (persist && state.settings && state.settings.theme !== theme) {
       window.api.updateSettings({ theme }).then((s) => { state.settings = s; }).catch(() => {});
     }
@@ -202,6 +206,8 @@
       wireTelemetry();
       wireModal();
       wireDnsModal();
+      wireTools();
+      wireTelnet();
       state.uiWired = true;
     }
 
@@ -226,7 +232,6 @@
         scheduleRender();
       }),
       window.api.onTransferProgress(renderImportProgress),
-      window.api.onBackupProgress(renderBackupProgress),
       window.api.onBackupChanged(() => refreshBackup()),
     );
 
@@ -267,6 +272,10 @@
     $('#titlebar-page').textContent = title;
     if (tab === 'backup') refreshBackup();
     if (tab === 'settings') refreshTelemetry();
+    if (tab === 'telnet') {
+      refreshTelnetHosts();
+      loadTelnetHistoryOnce();
+    }
   }
 
   // ---------------- DATA ----------------
@@ -516,6 +525,12 @@
         ip: $('#host-ip').value.trim(),
         ports: $('#host-ports').value.trim(),
         pingPort: $('#host-ping-port').value.trim(),
+        method: $('#host-method').value,
+        expectStatus: $('#host-expect-status').value.trim(),
+        bodyMatch: $('#host-body-match').value.trim(),
+        followRedirects: $('#host-follow-redirects').checked,
+        headers: $('#host-headers').value,
+        body: $('#host-body').value,
         intervalMinutes: Number($('#host-interval').value) || 5,
         enabled: $('#host-enabled').checked,
       };
@@ -570,6 +585,12 @@
     $('#host-ip').value = host ? host.ip || '' : '';
     $('#host-ports').value = host ? portsText(host) : '';
     $('#host-ping-port').value = host && host.pingPort ? host.pingPort : '';
+    $('#host-method').value = host && host.method ? host.method : 'GET';
+    $('#host-expect-status').value = host ? host.expectStatus || '' : '';
+    $('#host-body-match').value = host ? host.bodyMatch || '' : '';
+    $('#host-follow-redirects').checked = host ? host.followRedirects !== false : true;
+    $('#host-headers').value = host && Array.isArray(host.headers) ? host.headers.map((h) => `${h.name}: ${h.value}`).join('\n') : '';
+    $('#host-body').value = host ? host.body || '' : '';
     markPortPresets();
     $('#host-interval').value = host ? host.intervalMinutes : state.settings?.defaultIntervalMinutes || 5;
     $('#host-enabled').checked = host ? host.enabled : true;
@@ -799,7 +820,6 @@
     } catch {
       return;
     }
-    if (state.selectedProvider === undefined) state.selectedProvider = state.backup.cloud.provider || '';
     renderBackup();
   }
 
@@ -808,7 +828,9 @@
     if (!b) return;
     $('#backup-local-enabled').checked = b.local.enabled;
     if (document.activeElement !== $('#backup-local-keep')) $('#backup-local-keep').value = b.local.keep;
+    if (document.activeElement !== $('#backup-history')) $('#backup-history').checked = b.local.includeHistory;
     $('#backup-dir').textContent = b.local.dir;
+    $('#backup-passphrase').placeholder = b.passphraseSet ? '•••••••• (set - full backups are encrypted)' : 'Not set - backups are compressed but not encrypted';
     $('#backup-local-tbody').innerHTML = b.local.backups.length
       ? b.local.backups.map((x) => `
         <tr><td class="mono">${escapeHtml(x.name)}</td>
@@ -816,76 +838,14 @@
           <td class="nowrap">${fmtBytes(x.size)}</td><td class="nowrap">${escapeHtml(fmtTime(Date.parse(x.modified)))}</td>
           <td class="actions-cell"><button class="btn btn-ghost btn-sm" data-restore-local="${escapeHtml(x.name)}">Restore</button></td></tr>`).join('')
       : '<tr><td colspan="5" class="muted-small">No local backups yet.</td></tr>';
-
-    const sel = state.selectedProvider;
-    $('#cloud-provider-select').innerHTML = [{ id: '', label: 'None' }, ...b.providers]
-      .map((p) => `<button type="button" data-provider="${p.id}" class="${p.id === sel ? 'active' : ''}">${escapeHtml(p.label)}</button>`).join('');
-    const p = b.providers.find((x) => x.id === sel);
-    $('#cloud-provider-desc').textContent = p ? p.description : 'Cloud backup is off. Choose a provider to back up and sync your configuration and history.';
-    $('#form-cloud-provider').innerHTML = p ? p.fields.map((f) => (f.type === 'checkbox'
-      ? `<label class="switch-label"><input type="checkbox" data-key="${f.key}" ${f.value ? 'checked' : ''} /><span class="switch"></span> ${escapeHtml(f.label)}</label>`
-      : `<label>${escapeHtml(f.label)}${f.required ? ' *' : ''}
-          <input type="${f.type === 'password' ? 'password' : 'text'}" data-key="${f.key}" value="${escapeHtml(f.value)}"
-            placeholder="${escapeHtml(f.secret && f.isSet ? '•••••••• (saved - leave empty to keep)' : f.placeholder || '')}" autocomplete="off" /></label>`)).join('') : '';
-    $('#cloud-account').textContent = !p ? '' : p.oauth
-      ? (p.connected ? `Signed in${p.account ? ` as ${p.account}` : ''}.` : `Not signed in - click "${p.signInLabel || 'Connect'}" and finish the sign-in in your browser.`)
-      : (p.configured ? 'Credentials saved (encrypted with Windows DPAPI).' : '');
-    $('#btn-cloud-connect').classList.toggle('hidden', !(p && p.oauth));
-    $('#btn-cloud-connect').textContent = p && p.connected ? 'Switch account' : (p && p.signInLabel) || 'Connect';
-    $('#btn-cloud-connect').classList.toggle('btn-primary', Boolean(p && p.oauth && !p.connected));
-    $('#btn-cloud-connect').classList.toggle('btn-ghost', !(p && p.oauth && !p.connected));
-    $('#btn-cloud-save').classList.toggle('hidden', Boolean(p && p.oauth && !p.connected));
-    $('#btn-cloud-disconnect').classList.toggle('hidden', !(p && p.oauth && p.connected));
-    $('#btn-cloud-test').disabled = !p || !p.configured || b.cloud.provider !== p.id;
-
-    $('#cloud-enabled').checked = b.cloud.enabled;
-    $('#cloud-history').checked = b.cloud.includeHistory;
-    if (document.activeElement !== $('#cloud-interval')) $('#cloud-interval').value = b.cloud.intervalHours;
-    if (document.activeElement !== $('#cloud-keep')) $('#cloud-keep').value = b.cloud.keep;
-    $('#backup-passphrase').placeholder = b.passphraseSet ? '•••••••• (set - full backups are encrypted)' : 'Not set - backups are compressed but not encrypted';
-    const r = b.cloud.lastResult;
-    $('#cloud-last').innerHTML = [
-      r ? `<span class="badge ${r.ok ? 'badge-up' : 'badge-down'}" title="${escapeHtml(r.message)}">${r.ok ? 'Last backup OK' : 'Last backup failed'}</span> ${escapeHtml(fmtAgo(Date.parse(r.at)))}` : '',
-      b.cloud.nextRunAt ? `next ${b.cloud.nextRunAt <= Date.now() ? 'soon' : `in ${fmtUntil(b.cloud.nextRunAt)}`}` : '',
-    ].filter(Boolean).join(' &middot; ');
-    if (r && !r.ok) $('#cloud-error').textContent = r.message;
-  }
-
-  function renderBackupProgress(p) {
-    const bar = $('#cloud-progress');
-    const active = p.phase !== 'idle';
-    bar.classList.toggle('hidden', !active);
-    bar.classList.toggle('indeterminate', active);
-    $('#btn-cloud-now').disabled = active;
-    if (p.phase === 'uploading') $('#btn-cloud-now').lastChild.textContent = `Uploading ${fmtBytes(p.size)}…`;
-    else if (p.phase === 'downloading') $('#btn-cloud-now').lastChild.textContent = 'Restoring…';
-    else if (active) $('#btn-cloud-now').lastChild.textContent = `${p.phase[0].toUpperCase()}${p.phase.slice(1)}…`;
-    else $('#btn-cloud-now').lastChild.textContent = 'Back up to cloud now';
-  }
-
-  function providerValues() {
-    const values = {};
-    $all('#form-cloud-provider [data-key]').forEach((el) => {
-      values[el.dataset.key] = el.type === 'checkbox' ? el.checked : el.value.trim();
-    });
-    return values;
-  }
-
-  function renderCloudList(items) {
-    $('#backup-cloud-tbody').innerHTML = items.length
-      ? items.map((x) => `
-        <tr><td class="mono">${escapeHtml(x.name)}${x.name.endsWith('.enc') ? ` <span class="tag">${icon('lock')}encrypted</span>` : ''}</td>
-          <td class="nowrap">${fmtBytes(x.size)}</td><td class="nowrap">${x.modified ? escapeHtml(fmtTime(Date.parse(x.modified))) : '-'}</td>
-          <td class="actions-cell"><button class="btn btn-ghost btn-sm" data-restore-cloud="${escapeHtml(x.name)}">Restore</button></td></tr>`).join('')
-      : '<tr><td colspan="4" class="muted-small">No cloud backups found.</td></tr>';
   }
 
   async function restoreBackup(source, name) {
-    const full = /devowatch-backup-/.test(name);
-    if (!confirm(`Restore "${name}"?\n\nThis replaces all hosts, user accounts and settings (monitoring, DNS, theme, backup schedule, usage data)${full ? ', plus check history and cloud credentials if the backup contains them' : ''}.\nA safety backup of the current configuration is saved first.`)) return;
+    const full = /(?:devoping|devowatch)-backup-/.test(name);
+    if (!confirm(`Restore "${name}"?\n\nThis replaces all hosts, user accounts and settings (monitoring, DNS, theme, usage data)${full ? ', plus check history if the backup contains it' : ''}.\nA safety backup of the current configuration is saved first.`)) return;
     const res = await guarded(null, () => window.api.backupRestore(source, name));
     if (!res) return;
-    toast(`Restored ${res.kind} backup from ${new Date(res.createdAt).toLocaleString()} (${res.hosts} hosts${res.history ? ', with history' : ''}${res.credentials ? ', cloud credentials' : ''})`, 'success', 7000);
+    toast(`Restored ${res.kind} backup from ${new Date(res.createdAt).toLocaleString()} (${res.hosts} hosts${res.history ? ', with history' : ''})`, 'success', 7000);
     state.settings = await window.api.getSettings();
     if (state.settings.theme) applyTheme(state.settings.theme, false);
     fillSettingsForm(state.settings);
@@ -899,7 +859,7 @@
       toast(e.target.checked ? 'Automatic local backup enabled' : 'Automatic local backup disabled');
     }));
     $('#btn-backup-local-save').addEventListener('click', (e) => guarded(e.currentTarget, async () => {
-      await refreshBackup(await window.api.backupUpdateSettings({ localKeep: $('#backup-local-keep').value }));
+      await refreshBackup(await window.api.backupUpdateSettings({ localKeep: $('#backup-local-keep').value, includeHistory: $('#backup-history').checked }));
       toast('Saved', 'success');
     }));
     $('#btn-backup-open').addEventListener('click', () => window.api.backupOpenFolder().catch((err) => toast(errMsg(err), 'error')));
@@ -912,55 +872,6 @@
       const btn = e.target.closest('[data-restore-local]');
       if (btn) restoreBackup('local', btn.dataset.restoreLocal);
     });
-    $('#backup-cloud-tbody').addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-restore-cloud]');
-      if (btn) restoreBackup('cloud', btn.dataset.restoreCloud);
-    });
-
-    $('#cloud-provider-select').addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-provider]');
-      if (!btn) return;
-      state.selectedProvider = btn.dataset.provider;
-      $('#cloud-error').textContent = '';
-      renderBackup();
-    });
-    $('#btn-cloud-save').addEventListener('click', (e) => guarded(e.currentTarget, async () => {
-      const id = state.selectedProvider;
-      if (!id) {
-        await refreshBackup(await window.api.backupUpdateSettings({ cloudProvider: '', cloudEnabled: false }));
-        toast('Cloud backup turned off');
-        return;
-      }
-      await refreshBackup(await window.api.backupSetProvider(id, providerValues()));
-      toast('Provider saved', 'success');
-    }));
-    // One click: save the provider (folder etc.) and open the browser sign-in.
-    $('#btn-cloud-connect').addEventListener('click', (e) => guarded(e.currentTarget, async () => {
-      const id = state.selectedProvider;
-      await window.api.backupSetProvider(id, providerValues());
-      toast('Complete the sign-in in your browser…', 'info', 8000);
-      const status = await window.api.backupConnect(id);
-      await refreshBackup(status);
-      const p = status.providers.find((x) => x.id === id);
-      toast(`Signed in${p && p.account ? ` as ${p.account}` : ''}`, 'success');
-    }));
-    $('#btn-cloud-disconnect').addEventListener('click', (e) => guarded(e.currentTarget, async () => {
-      await refreshBackup(await window.api.backupDisconnect(state.selectedProvider));
-      toast('Signed out');
-    }));
-    $('#btn-cloud-test').addEventListener('click', (e) => guarded(e.currentTarget, async () => {
-      const res = await window.api.backupTest();
-      toast(res.message, 'success', 6000);
-    }));
-    $('#btn-cloud-options-save').addEventListener('click', (e) => guarded(e.currentTarget, async () => {
-      await refreshBackup(await window.api.backupUpdateSettings({
-        cloudEnabled: $('#cloud-enabled').checked,
-        cloudIntervalHours: $('#cloud-interval').value,
-        cloudKeep: $('#cloud-keep').value,
-        includeHistory: $('#cloud-history').checked,
-      }));
-      toast('Cloud backup options saved', 'success');
-    }));
     $('#btn-passphrase-save').addEventListener('click', (e) => guarded(e.currentTarget, async () => {
       await refreshBackup(await window.api.backupSetPassphrase($('#backup-passphrase').value));
       $('#backup-passphrase').value = '';
@@ -970,15 +881,6 @@
       if (!confirm('Clear the passphrase? New backups will not be encrypted, and existing encrypted backups can no longer be restored on this PC until it is set again.')) return;
       await refreshBackup(await window.api.backupSetPassphrase(null));
       toast('Backup passphrase cleared');
-    }));
-    $('#btn-cloud-now').addEventListener('click', () => guarded(null, async () => {
-      const res = await window.api.backupRunCloud();
-      toast(res.message, 'success', 7000);
-      await refreshBackup();
-      renderCloudList(await window.api.backupListCloud());
-    }).finally(() => refreshBackup()));
-    $('#btn-cloud-list').addEventListener('click', (e) => guarded(e.currentTarget, async () => {
-      renderCloudList(await window.api.backupListCloud());
     }));
   }
 
@@ -1012,11 +914,6 @@
     $('#about-version').textContent = info.version;
     $('#about-electron').textContent = info.electron;
     $('#about-year').textContent = new Date().getFullYear();
-    $('#about-link').textContent = info.homepage.replace(/^https:\/\//, '');
-    $('#about-link').onclick = (e) => {
-      e.preventDefault();
-      window.api.openExternal(info.homepage).catch((err) => toast(errMsg(err), 'error'));
-    };
   }
 
   // ---------------- HOST DETAIL MODAL ----------------
@@ -1025,10 +922,15 @@
     $('#modal-detail').addEventListener('click', (e) => {
       if (e.target.id === 'modal-detail') closeModal();
     });
+    $('#modal-report-html').addEventListener('click', () => exportReport(state.detailHostId, 'html'));
+    $('#modal-report-csv').addEventListener('click', () => exportReport(state.detailHostId, 'csv'));
+    $('#modal-report-pdf').addEventListener('click', () => exportReport(state.detailHostId, 'pdf'));
+    $('#modal-chart-png').addEventListener('click', downloadChartPng);
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
       closeModal();
       $('#modal-dns').classList.add('hidden');
+      $('#modal-tools').classList.add('hidden');
     });
   }
 
@@ -1043,6 +945,7 @@
   async function openHostDetail(hostId) {
     const host = state.hostsById.get(hostId);
     if (!host) return;
+    state.detailHostId = hostId;
     $('#modal-title').textContent = host.name;
     $('#modal-detail').classList.remove('hidden');
 
@@ -1087,7 +990,28 @@
       </div>
       ${uptime}${ssl}${portTable}
       <h3>Latency (${days} days)</h3>`;
-    renderDetailChart(history, ports);
+    try {
+      await loadChartLib();
+      renderDetailChart(history, ports);
+    } catch (err) {
+      reportError(`Chart library failed to load: ${err.message}`);
+    }
+  }
+
+  // Chart.js is only needed for the host-detail graph, so it is loaded on first use (not at startup).
+  let chartLibPromise = null;
+  function loadChartLib() {
+    if (typeof Chart !== 'undefined') return Promise.resolve();
+    if (!chartLibPromise) {
+      chartLibPromise = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'js/chart.umd.js';
+        s.onload = () => resolve();
+        s.onerror = () => { chartLibPromise = null; reject(new Error('could not load js/chart.umd.js')); };
+        document.head.appendChild(s);
+      });
+    }
+    return chartLibPromise;
   }
 
   function cssColor(name, alpha = 1) {
@@ -1136,6 +1060,205 @@
           tooltip: { callbacks: { title: (items) => new Date(items[0].parsed.x).toLocaleString() } },
         },
       },
+    });
+  }
+
+  // ---------------- REPORTS & CONNECTIVITY TEST ----------------
+  async function exportReport(scope, format) {
+    try {
+      const res = await window.api.exportReport(scope || 'all', format);
+      if (res && res.filePath) toast(`Report saved: ${res.filePath}`, 'success', 6000);
+    } catch (err) {
+      toast(errMsg(err), 'error', 7000);
+    }
+  }
+
+  async function downloadChartPng() {
+    if (!state.detailChart) return toast('No chart to export yet', 'error');
+    const name = `devoping-${(state.hostsById.get(state.detailHostId)?.name || 'host').replace(/[^a-z0-9_-]+/gi, '_')}-latency`;
+    try {
+      const res = await window.api.saveChartPng(name, state.detailChart.toBase64Image('image/png', 1));
+      if (res && res.filePath) toast(`Image saved: ${res.filePath}`, 'success', 6000);
+    } catch (err) {
+      toast(errMsg(err), 'error', 7000);
+    }
+  }
+
+  function wireTools() {
+    $('#btn-tools').addEventListener('click', openTools);
+    $('#tools-close-btn').addEventListener('click', () => $('#modal-tools').classList.add('hidden'));
+    $('#modal-tools').addEventListener('click', (e) => {
+      if (e.target.id === 'modal-tools') $('#modal-tools').classList.add('hidden');
+    });
+    $('#form-tools').addEventListener('submit', (e) => {
+      e.preventDefault();
+      runTools();
+    });
+    $('#status-filter').parentElement.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-report-all]');
+      if (btn) exportReport('all', btn.dataset.reportAll);
+    });
+  }
+
+  function openTools() {
+    $('#tools-error').textContent = '';
+    $('#tools-results').innerHTML = '';
+    $('#modal-tools').classList.remove('hidden');
+    $('#tools-target').focus();
+  }
+
+  async function runTools() {
+    const errEl = $('#tools-error');
+    const out = $('#tools-results');
+    const btn = $('#tools-submit-btn');
+    errEl.textContent = '';
+    out.innerHTML = '<div class="spinner spinner-small"></div>';
+    btn.disabled = true;
+    try {
+      const res = await window.api.testConnectivity($('#tools-target').value.trim(), $('#tools-ports').value.trim());
+      out.innerHTML = renderToolsResult(res);
+    } catch (err) {
+      out.innerHTML = '';
+      errEl.textContent = errMsg(err);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function toolBadge(ok, text) {
+    return `<span class="badge ${ok ? 'badge-up' : 'badge-down'}">${escapeHtml(text)}</span>`;
+  }
+
+  function renderToolsResult(res) {
+    const ms = (v) => (v == null ? '' : `${Math.round(v)} ms`);
+    const rows = [];
+    rows.push(`<div class="detail-row"><span>Target</span><span class="mono">${escapeHtml(res.host)}${res.resolvedIp && res.resolvedIp !== res.host ? ` &rarr; ${escapeHtml(res.resolvedIp)}` : ''}</span></div>`);
+    if (res.http) {
+      rows.push(`<div class="detail-row"><span>HTTP</span><span>${res.http.ok ? toolBadge(true, String(res.http.statusCode || 'OK')) : toolBadge(false, res.http.error || 'Failed')} ${escapeHtml(ms(res.http.latencyMs))}</span></div>`);
+      if (res.http.ssl) rows.push(`<div class="detail-row"><span>SSL</span><span>${escapeHtml(res.http.ssl.issuer || '')} &middot; ${res.http.ssl.daysRemaining}d left</span></div>`);
+    }
+    const ping = res.ping || {};
+    rows.push(`<div class="detail-row"><span>Ping</span><span>${ping.ok ? `${toolBadge(true, 'Reply')} ${escapeHtml(ms(ping.latencyMs))}` : toolBadge(false, ping.error || 'No reply')}</span></div>`);
+    let portTable = '';
+    if (res.ports && res.ports.length) {
+      portTable = `<h3>Ports</h3><table class="data-table port-table"><thead><tr><th>Port</th><th>Service</th><th>State</th><th>Latency</th><th>Banner / error</th></tr></thead><tbody>${res.ports.map((p) => `<tr>
+        <td class="mono">${p.port}</td><td>${escapeHtml(p.service || '-')}</td>
+        <td>${p.ok ? toolBadge(true, 'Open') : toolBadge(false, 'Closed')}</td>
+        <td class="nowrap">${p.ok ? escapeHtml(ms(p.latencyMs)) : '-'}</td>
+        <td class="mono port-detail">${escapeHtml(p.banner || p.error || '')}</td></tr>`).join('')}</tbody></table>`;
+    }
+    return `<div class="detail-grid">${rows.join('')}</div>${portTable}`;
+  }
+
+  // ---------------- TELNET CONSOLE ----------------
+  function refreshTelnetHosts() {
+    const sel = $('#telnet-host');
+    const prev = sel.value;
+    sel.innerHTML = ['<option value="">— custom —</option>']
+      .concat(state.hosts.map((h) => `<option value="${escapeHtml(h.id)}">${escapeHtml(h.name)}${h.url || h.ip ? ` — ${escapeHtml(h.url || h.ip)}` : ''}</option>`))
+      .join('');
+    if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
+  }
+
+  function telnetTargetFromHost(host) {
+    if (!host) return '';
+    if (host.ip) return host.ip;
+    if (host.url) {
+      try { return new URL(host.url).hostname; } catch { return host.url; }
+    }
+    return '';
+  }
+
+  function renderTelnetPresets(host) {
+    const ports = [];
+    if (host && Array.isArray(host.ports)) host.ports.forEach((p) => ports.push(p.port));
+    if (host && host.pingPort) ports.push(host.pingPort);
+    [23, 22, 80, 443, 3389].forEach((p) => { if (!ports.includes(p)) ports.push(p); });
+    $('#telnet-port-presets').innerHTML = ports.map((p) => `<button type="button" class="chip" data-telnet-port="${p}">${p}</button>`).join('');
+  }
+
+  function appendTelnet(line) {
+    const out = $('#telnet-output');
+    out.textContent += (out.textContent ? '\n' : '') + line;
+    out.scrollTop = out.scrollHeight;
+  }
+
+  function setTelnetConnected(connected) {
+    $('#telnet-connect-btn').disabled = connected;
+    $('#telnet-disconnect-btn').disabled = !connected;
+    $('#telnet-input').disabled = !connected;
+    $('#telnet-send-btn').disabled = !connected;
+  }
+
+  async function loadTelnetHistoryOnce() {
+    if (state.telnetLoaded) return;
+    state.telnetLoaded = true;
+    try {
+      const text = await window.api.telnetHistory();
+      if (text) {
+        const out = $('#telnet-output');
+        out.textContent = text.replace(/\n$/, '');
+        out.scrollTop = out.scrollHeight;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  function wireTelnet() {
+    $('#telnet-host').addEventListener('change', (e) => {
+      const host = state.hostsById.get(e.target.value);
+      $('#telnet-target').value = telnetTargetFromHost(host);
+      renderTelnetPresets(host);
+    });
+    $('#telnet-port-presets').addEventListener('click', (e) => {
+      const chip = e.target.closest('[data-telnet-port]');
+      if (chip) $('#telnet-port').value = chip.dataset.telnetPort;
+    });
+    $('#form-telnet').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      $('#telnet-error').textContent = '';
+      try {
+        const res = await window.api.telnetConnect($('#telnet-target').value.trim(), Number($('#telnet-port').value));
+        state.telnetSessionId = res.sessionId;
+        setTelnetConnected(true);
+        $('#telnet-input').focus();
+      } catch (err) {
+        $('#telnet-error').textContent = errMsg(err);
+      }
+    });
+    $('#telnet-disconnect-btn').addEventListener('click', () => {
+      if (state.telnetSessionId) window.api.telnetDisconnect(state.telnetSessionId).catch(() => {});
+    });
+    $('#form-telnet-send').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = $('#telnet-input');
+      if (!state.telnetSessionId || !input.value) return;
+      try {
+        await window.api.telnetSend(state.telnetSessionId, input.value);
+        input.value = '';
+      } catch (err) {
+        $('#telnet-error').textContent = errMsg(err);
+      }
+    });
+    $('#btn-telnet-clear').addEventListener('click', async () => {
+      if (!confirm('Clear the telnet history log? This permanently deletes the saved console history.')) return;
+      try {
+        await window.api.telnetClearHistory();
+        $('#telnet-output').textContent = '';
+        toast('Telnet history cleared');
+      } catch (err) {
+        toast(errMsg(err), 'error');
+      }
+    });
+    $('#btn-telnet-log').addEventListener('click', () => window.api.openDataFolder().catch((err) => toast(errMsg(err), 'error')));
+
+    window.api.onTelnetLine((entry) => { if (entry && entry.line) appendTelnet(entry.line); });
+    window.api.onTelnetClosed((info) => {
+      if (info && info.sessionId === state.telnetSessionId) {
+        state.telnetSessionId = null;
+        setTelnetConnected(false);
+      }
     });
   }
 
@@ -1218,6 +1341,6 @@
   bootstrap().catch((err) => {
     reportError(`Startup failed: ${err.stack || err}`);
     $('#view-loading').innerHTML = `<div class="auth-card"><h1>Something went wrong</h1>
-      <p class="muted">${escapeHtml(errMsg(err))}</p><p class="muted-small">Details were written to data/logs/devowatch.log.</p></div>`;
+      <p class="muted">${escapeHtml(errMsg(err))}</p><p class="muted-small">Details were written to appdata/logs/devoping.log.</p></div>`;
   });
 })();

@@ -1,6 +1,6 @@
-# DevoWatch
+# Devoping
 
-**DevoWatch** is a portable Windows desktop app for monitoring websites, IP addresses, SSL
+**Devoping** is a portable Windows desktop app for monitoring websites, service URLs, IP addresses, SSL
 certificates and DNS records, with a live dashboard, automatic local backups and optional cloud
 backup/sync to Amazon S3, Google Drive or OneDrive.
 
@@ -21,7 +21,7 @@ Website: <https://devolity.com>
 9. [Telemetry and the collection server](#9-telemetry-and-the-collection-server)
 10. [Security model](#10-security-model)
 11. [Reliability](#11-reliability)
-12. [Extending DevoWatch](#12-extending-devowatch)
+12. [Extending Devoping](#12-extending-devoping)
 13. [Testing](#13-testing)
 14. [Troubleshooting](#14-troubleshooting)
 15. [Branding](#15-branding)
@@ -33,15 +33,15 @@ Website: <https://devolity.com>
 | Area | What it does |
 |---|---|
 | **Dashboard** | One row per host: status (Up / Down / Partial / Paused / live "Checking..."), host + URL, IP (auto-resolved or manual), HTTP status + latency, ping + latency, TCP port chips (green open / red closed), SSL days left, last/next check. Search, status filter, summary cards. |
-| **Checks** | HTTP(S) status and latency, TLS certificate expiry, ICMP ping, TCP ports. Per-host interval (1-1440 min). Bounded queue (8 concurrent), per-check watchdog. |
-| **Ping fallback** | Many servers block ICMP. If ping gets no reply, DevoWatch tries a TCP connection to the host's **Ping fallback port** (or 443, then 80). A successful handshake counts as a reply and the Ping column shows e.g. `TCP 443`. |
+| **Checks** | HTTP(S) status and latency, TLS certificate expiry, ICMP ping, TCP ports. HTTP(S) accepts service endpoints such as Azure/AWS storage, OpenAI APIs and container services. Per-host interval (1-1440 min). |
+| **Ping fallback** | Many servers block ICMP. If ping gets no reply, Devoping tries a TCP connection to the host's **Ping fallback port** (or 443, then 80). A successful handshake counts as a reply and the Ping column shows e.g. `TCP 443`. |
 | **Port monitoring** | Any TCP ports per host (up to 32): numbers (`443`, `8080`), service names (`ssh`, `ftp`, `rdp`, `smtp`, `mysql`, ...), or custom labels (`9000:minio`). Quick-add presets in the host form. Checked against the IP, or the URL's hostname if there is no IP. Records connect latency and, for greeting protocols (FTP, SSH, Telnet, SMTP, POP3, IMAP, VNC), the server banner (e.g. `SSH-2.0-OpenSSH_9.6`). No data is ever sent to the port. |
 | **Auto IP** | Hosts with only a URL get their IPv4 resolved and pinged; the IP is refreshed on every check. |
 | **DNS tools** | A, AAAA, CNAME, MX, TXT, CAA, NS, SOA, DMARC and PTR lookups via system, global, Google, Cloudflare or Quad9 resolvers; OS resolver + `hosts` file view; raw `dig`/`host`/`nslookup` output. |
 | **Global DNS** | Optional resolvers (Settings) used for checks and IP resolution, with fallback to the system resolver. |
 | **Import / export** | Hosts from JSON, CSV or a plain list (one URL/IP per line); export hosts (JSON/CSV) and check history (CSV). |
 | **Progress** | Live check progress in the title bar, the sidebar and per row; import progress. |
-| **Backup & Sync** | Automatic configuration backups to `<root>/backup`; full backups (config + history) locally or to S3 / Google Drive / OneDrive, scheduled with retention; optional AES-256 encryption; restore from any backup. |
+| **Backup & Sync** | Automatic configuration backups to `<app-home>/appdata/backup`; full backups (config + history) locally or to S3 / Google Drive / OneDrive, scheduled with retention; optional AES-256 encryption; restore from any backup. |
 | **Telemetry** | Anonymous usage counters sent to Grafana Cloud (on by default; users can switch it off, administrators can force it off). |
 | **UI** | Custom title bar with native Windows controls, dark/light themes, sidebar navigation. |
 | **Security** | Local accounts (bcrypt, lockout), sandboxed renderer, strict CSP, Electron fuses, DPAPI-encrypted credentials. |
@@ -58,8 +58,8 @@ Website: <https://devolity.com>
 ### Install and run
 
 ```powershell
-git clone <your-repo-url> devowatch
-cd devowatch
+git clone <your-repo-url> devoping
+cd devoping
 npm install
 npm install-scripts approve electron   # npm 11+: allow Electron's postinstall to download its runtime
 npm rebuild electron                   # fetches node_modules/electron/dist/electron.exe if it was skipped
@@ -68,10 +68,10 @@ npm start
 
 `npm install` also runs `scripts/copy-assets.js`, which copies Chart.js into `renderer/js/`.
 
-On first launch, create the administrator account. In development, data is stored in
-`./data` and backups in `./backup` (both git-ignored).
+On first launch, create the administrator account. Runtime state is stored in `./appdata` in
+development and beside the portable executable in a packaged build. The folder is git-ignored.
 
-To produce the standalone `DevoWatch-Portable.exe`, run `npm run dist:portable`. See
+To produce the standalone `Devoping-Portable.exe`, run `npm run dist:portable`. See
 [section 3](#3-building-the-standalone-exe) for the full step-by-step guide.
 
 ### npm scripts
@@ -80,15 +80,15 @@ To produce the standalone `DevoWatch-Portable.exe`, run `npm run dist:portable`.
 |---|---|
 | `npm start` | Run the app from source |
 | `npm run icon` | Regenerate `renderer/img/icon.png` from `renderer/img/logo.png` (after changing the logo) |
-| `npm run dist:portable` | Build `dist/DevoWatch-Portable.exe` (single self-extracting exe) |
-| `npm run dist:zip` | Build `dist/DevoWatch-<version>-win-x64.zip` (unpacked folder, no %TEMP% extraction) |
+| `npm run dist:portable` | Build `dist/Devoping-Portable.exe` (single self-extracting exe) |
+| `npm run dist:zip` | Build `dist/Devoping-<version>-win-x64.zip` (unpacked folder, no %TEMP% extraction) |
 | `npm run dist` | Build all targets configured in `package.json > build` |
 
 ---
 
 ## 3. Building the standalone .exe
 
-DevoWatch ships as a **standalone Windows executable**: one `.exe` with no installer and no
+Devoping ships as a **standalone Windows executable**: one `.exe` with no installer and no
 admin rights. It doesn't need Node.js or anything else on the target PC. Copy it anywhere and
 double-click it.
 
@@ -104,7 +104,7 @@ Run these in **PowerShell** or **Command Prompt** on a Windows 10/11 x64 machine
 **2. Get the source and install dependencies**
 
 ```powershell
-cd C:\path\to\devowatch
+cd C:\path\to\devoping
 npm install
 ```
 
@@ -141,7 +141,7 @@ tools into `%LOCALAPPDATA%\electron-builder\Cache`. Output:
 
 ```
 dist\
-  DevoWatch-Portable.exe     <-- the standalone app (about 105 MB), ship this file
+  Devoping-Portable.exe      <-- the standalone app (about 105 MB), ship this file
   win-unpacked\              unpacked app folder (used to build the exe; also runnable)
 ```
 
@@ -149,18 +149,18 @@ dist\
 
 ```powershell
 # Version info baked into the exe
-(Get-Item dist\DevoWatch-Portable.exe).VersionInfo | Select ProductName, CompanyName, FileVersion, LegalCopyright
+(Get-Item dist\Devoping-Portable.exe).VersionInfo | Select ProductName, CompanyName, FileVersion, LegalCopyright
 
 # SHA-256 hash (publish it, or give it to IT for allow-listing)
-Get-FileHash dist\DevoWatch-Portable.exe -Algorithm SHA256
+Get-FileHash dist\Devoping-Portable.exe -Algorithm SHA256
 
 # Antivirus scan with Microsoft Defender (report only)
-& "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File "$PWD\dist\DevoWatch-Portable.exe" -DisableRemediation
+& "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File "$PWD\dist\Devoping-Portable.exe" -DisableRemediation
 ```
 
 **7. Run / distribute**
 
-- Copy `DevoWatch-Portable.exe` into any folder the user can write to (e.g. `D:\Tools\DevoWatch\`)
+- Copy `Devoping-Portable.exe` into any folder the user can write to (e.g. `D:\Tools\Devoping\`)
   and double-click it.
 - On first run it creates `data\` and `backup\` **next to the exe**. To move the installation,
   move the whole folder, exe included.
@@ -172,8 +172,8 @@ Get-FileHash dist\DevoWatch-Portable.exe -Algorithm SHA256
 
 | Command | Output | Use when |
 |---|---|---|
-| `npm run dist:portable` | `dist\DevoWatch-Portable.exe` | Default: a single standalone exe |
-| `npm run dist:zip` | `dist\DevoWatch-<version>-win-x64.zip` | Company policy blocks programs that self-extract to `%TEMP%` (AppLocker/WDAC). Unzip and run `DevoWatch.exe`. |
+| `npm run dist:portable` | `dist\Devoping-Portable.exe` | Default: a single standalone exe |
+| `npm run dist:zip` | `dist\Devoping-<version>-win-x64.zip` | Company policy blocks programs that self-extract to `%TEMP%` (AppLocker/WDAC). Unzip and run `Devoping.exe`. |
 | `npx electron-builder --win portable zip` | both | Release builds |
 
 How the standalone exe works: it's an electron-builder *portable* target. At each launch it
@@ -194,10 +194,10 @@ Builds are **unsigned** by default, so Windows SmartScreen may show "Windows pro
 it with a code-signing certificate (an EV certificate gets SmartScreen reputation fastest):
 
 ```powershell
-$env:CSC_LINK = "C:\secure\devowatch-codesign.pfx"   # or a base64 / https URL to the .pfx
+$env:CSC_LINK = "C:\secure\devoping-codesign.pfx"   # or a base64 / https URL to the .pfx
 $env:CSC_KEY_PASSWORD = "<pfx password>"
 npm run dist:portable
-Get-AuthenticodeSignature dist\DevoWatch-Portable.exe   # Status must be "Valid"
+Get-AuthenticodeSignature dist\Devoping-Portable.exe   # Status must be "Valid"
 ```
 
 Never commit the `.pfx` or its password (`.gitignore` already excludes `*.pfx`, `*.p12` and
@@ -231,14 +231,14 @@ Never commit the `.pfx` or its password (`.gitignore` already excludes `*.pfx`, 
 | `electron.exe` missing / `Electron failed to install correctly` | Step 3: `npm install-scripts approve electron` then `npm rebuild electron` |
 | `Cannot create symbolic link : A required privilege is not held by the client` (winCodeSign) | Turn on **Settings > System > For developers > Developer Mode** and rebuild, or run the terminal as Administrator once so the cache is extracted |
 | `spawn powershell.exe ENOENT` | You're building from Git Bash/MSYS2: add `C:\Windows\System32\WindowsPowerShell\v1.0` to `PATH`, or build from PowerShell |
-| `EBUSY` / `resource busy or locked` on `dist\DevoWatch-Portable.exe` | Close any running DevoWatch, wait for antivirus to finish scanning, then rebuild |
+| `EBUSY` / `resource busy or locked` on `dist\Devoping-Portable.exe` | Close any running Devoping, wait for antivirus to finish scanning, then rebuild |
 | Very slow first build | electron-builder downloads Electron and NSIS tools once; later builds reuse the cache |
 
 ---
 
 ## 4. Architecture
 
-DevoWatch is an Electron app with a strict split between the privileged **main process**
+Devoping is an Electron app with a strict split between the privileged **main process**
 (Node.js: files, network, child processes) and an unprivileged, sandboxed **renderer** (the UI).
 They talk only through a small whitelisted IPC API exposed by `preload.js`.
 
@@ -301,23 +301,24 @@ setInterval per host --> enqueue(hostId) --> queue --> pump (max 8 running)
 
 ## 5. Data, files and formats
 
-`<root>` is the folder containing the exe (portable) or the project folder (development). If it
-isn't writable, DevoWatch falls back to `%APPDATA%\DevoWatch`.
+`<app-home>` is the folder containing the portable exe or the project folder (development).
+All Electron user data and application files are kept in `appdata/`; legacy `data/`, `backup/`
+and DevoWatch roaming-profile files are copied there on first launch without overwriting files.
 
 ```
-<root>/
-  DevoWatch-Portable.exe        (or DevoWatch.exe from the ZIP)
+<app-home>/
+  Devoping-Portable.exe        (or Devoping.exe from the ZIP)
   policy.json                   optional, administrator policy (see section 9)
-  data/
+  appdata/
     config.json                 settings, hosts, users (bcrypt hashes)
     config.json.bak             last known-good config (auto)
     monitoring.db               SQLite check history (sql.js)
     secrets.json                DPAPI-encrypted credentials (cloud keys/tokens, passphrase)
     telemetry-queue.json        pending telemetry events (only when enabled)
-    logs/devowatch.log          rotating log (2 MB x 3)
-  backup/
-    devowatch-config-YYYYMMDD-HHMMSS.json        automatic config snapshots
-    devowatch-backup-YYYYMMDD-HHMMSS.json.gz     manual full backups (.enc when encrypted)
+    logs/devoping.log           rotating log (2 MB x 3)
+    backup/
+      devoping-config-YYYYMMDD-HHMMSS.json       automatic config snapshots
+      devoping-backup-YYYYMMDD-HHMMSS.json.gz    manual full backups (.enc when encrypted)
 ```
 
 ### `config.json`
@@ -329,7 +330,7 @@ isn't writable, DevoWatch falls back to `%APPDATA%\DevoWatch`.
     "dnsServers": ["1.1.1.1"],
     "backup": { "localEnabled": true, "localKeep": 30, "cloudProvider": "s3", "cloudEnabled": true,
                 "cloudIntervalHours": 24, "cloudKeep": 14, "includeHistory": true,
-                "providers": { "s3": { "bucket": "...", "region": "...", "prefix": "devowatch/", "accessKeyId": "..." } } },
+                "providers": { "s3": { "bucket": "...", "region": "...", "prefix": "devoping/", "accessKeyId": "..." } } },
     "telemetry": { "enabled": false, "installId": null }
   },
   "hosts": [{ "id": "uuid", "name": "GitHub", "url": "https://github.com/", "ip": "20.207.73.82",
@@ -378,7 +379,7 @@ may be separated by `;`, `,` or spaces (quote the cell if it contains commas).
   The key is derived with scrypt (N=2^15, r=8, p=1).
 
 ```json
-{ "app": "DevoWatch", "format": 1, "kind": "config|full", "createdAt": "...", "appVersion": "1.0.0",
+{ "app": "Devoping", "format": 1, "kind": "config|full", "createdAt": "...", "appVersion": "1.0.0",
   "config": { "settings": {}, "hosts": [], "users": [] }, "db": "<base64 SQLite, full backups only>" }
 ```
 
@@ -391,7 +392,7 @@ may be separated by `;`, `,` or spaces (quote the cell if it contains commas).
 | `main.js` | App lifecycle, single instance, hardening, window (title bar overlay), crash recovery, shutdown |
 | `preload.js` | `window.api` bridge: the only surface the UI can call |
 | `src/ipc.js` | All IPC handlers; sender verification, auth gate, input validation, logging |
-| `src/paths.js` | `<root>`, `data/`, `backup/` resolution with read-only fallback |
+| `src/paths.js` | Portable `<app-home>/appdata` resolution and non-destructive legacy data migration |
 | `src/config.js` | JSON store (atomic writes, `.bak` recovery, save hooks, snapshot/replace) |
 | `src/db.js` | sql.js database, batched atomic flushes, corruption quarantine, export/replace |
 | `src/fsutil.js` | `writeFileAtomic`, `quarantine` |
@@ -448,12 +449,12 @@ Main-to-renderer push events: `monitor:result`, `monitor:activity`, `hosts:chang
 ### 8.1 Automatic local backup (on by default)
 
 - After every **real** configuration change (hosts, settings, users), a snapshot
-  `devowatch-config-<timestamp>.json` is written to `<root>/backup`. Changes are debounced by
+  `devoping-config-<timestamp>.json` is written to `appdata/backup`. Changes are debounced by
   5 s. Identical content is skipped; bookkeeping fields and auto-resolved IP changes are ignored.
 - A snapshot is also taken at startup (if changed), before every restore, and at shutdown if
   one is pending.
 - The last **N** snapshots are kept (default 30, configurable). **Full backup now** adds a
-  `devowatch-backup-*.json.gz` file (config + check history).
+  `devoping-backup-*.json.gz` file (config + check history).
 
 ### 8.2 Cloud backup
 
@@ -473,7 +474,7 @@ configured with the same provider (and passphrase) can **Restore** it.
 
 What a backup contains:
 
-| Item | Config snapshot (`devowatch-config-*.json`) | Full backup | Encrypted full backup |
+| Item | Config snapshot (`devoping-config-*.json`) | Full backup | Encrypted full backup |
 |---|---|---|---|
 | Hosts (URLs, IPs, ports, ping fallback, intervals) | yes | yes | yes |
 | User accounts (bcrypt hashes) | yes | yes | yes |
@@ -488,21 +489,21 @@ Not included: `policy.json` (administrator file next to the exe) and logs.
 
 #### Amazon S3 / S3-compatible
 
-1. Create a bucket (for example `devowatch-backups`) and an IAM user or access key with this policy:
+1. Create a bucket (for example `devoping-backups`) and an IAM user or access key with this policy:
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
-    { "Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": "arn:aws:s3:::devowatch-backups",
-      "Condition": { "StringLike": { "s3:prefix": ["devowatch/*"] } } },
+    { "Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": "arn:aws:s3:::devoping-backups",
+      "Condition": { "StringLike": { "s3:prefix": ["devoping/*"] } } },
     { "Effect": "Allow", "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
-      "Resource": "arn:aws:s3:::devowatch-backups/devowatch/*" }
+      "Resource": "arn:aws:s3:::devoping-backups/devoping/*" }
   ]
 }
 ```
 
-2. In DevoWatch, enter Bucket, Region, Key prefix (`devowatch/`), Access key ID and Secret access key.
+2. In Devoping, enter Bucket, Region, Key prefix (`devoping/`), Access key ID and Secret access key.
 3. For S3-compatible stores, also set **Custom endpoint**:
    - MinIO: `https://minio.example.com` with **Path-style** on.
    - Cloudflare R2: `https://<account>.r2.cloudflarestorage.com` with region `auto`.
@@ -529,7 +530,7 @@ registration (the fields described below).
 
 **Google** ([Google Cloud Console](https://console.cloud.google.com/)):
 1. Create a project, enable the **Google Drive API**.
-2. **OAuth consent screen**: user type **External**, app name `DevoWatch`, logo, home page
+2. **OAuth consent screen**: user type **External**, app name `Devoping`, logo, home page
    `https://devolity.com`, privacy policy URL; add the scope `.../auth/drive.file` (non-sensitive).
 3. **Publish the app** (Publishing status: *In production*). In *Testing* status only listed test
    users can sign in and refresh tokens expire after 7 days. Google may ask for brand verification
@@ -538,7 +539,7 @@ registration (the fields described below).
    and client secret into `oauth-clients.js`.
 
 **Microsoft** ([Entra ID > App registrations](https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/RegisteredApps)):
-1. **New registration**, name `DevoWatch`, supported accounts **Accounts in any organizational
+1. **New registration**, name `Devoping`, supported accounts **Accounts in any organizational
    directory and personal Microsoft accounts**.
 2. Redirect URI: platform **Public client/native (mobile & desktop)**, URI `http://127.0.0.1`.
 3. **Authentication**: *Allow public client flows* = **Yes**.
@@ -556,8 +557,8 @@ registration (the fields described below).
    and add the scope `.../auth/drive.file`.
 3. Under **Credentials > Create credentials > OAuth client ID**, choose application type
    **Desktop app**. Copy the client ID and client secret.
-4. In DevoWatch, enter both, click **Save provider**, then **Connect**. Your browser opens; sign in
-   and allow access. DevoWatch can only see files it creates itself (`drive.file` scope).
+4. In Devoping, enter both, click **Save provider**, then **Connect**. Your browser opens; sign in
+  and allow access. Devoping can only see files it creates itself (`drive.file` scope).
 
 #### Microsoft OneDrive (own app registration, only if no built-in app)
 
@@ -568,12 +569,12 @@ registration (the fields described below).
 2. Under **Authentication**, set **Allow public client flows = Yes**.
 3. Under **API permissions**, add the Microsoft Graph delegated permissions `Files.ReadWrite`,
    `User.Read` and `offline_access`. Grant admin consent if your tenant requires it.
-4. In DevoWatch, enter the Application (client) ID and the Tenant (`common`, `organizations` or
-   your tenant ID). Click **Save provider**, then **Connect**. Backups go to `Apps/DevoWatch` in
+4. In Devoping, enter the Application (client) ID and the Tenant (`common`, `organizations` or
+  your tenant ID). Click **Save provider**, then **Connect**. Backups go to `Apps/Devoping` in
    OneDrive by default.
 
 Sign-in uses the OAuth 2.0 authorization-code flow with **PKCE** through the system browser.
-DevoWatch listens once on `127.0.0.1` on a random port and validates `state`. The refresh token
+Devoping listens once on `127.0.0.1` on a random port and validates `state`. The refresh token
 is stored DPAPI-encrypted; **Sign out** deletes it.
 
 ---
@@ -606,7 +607,7 @@ Generic format:
   "schema": 1,
   "installId": "random-uuid (not hardware-derived; discarded when telemetry is turned off)",
   "sentAt": "2026-10-01T05:14:32.039Z",
-  "app": { "name": "DevoWatch", "version": "1.0.0", "electron": "44.5.1" },
+  "app": { "name": "Devoping", "version": "1.0.0", "electron": "44.5.1" },
   "os": { "platform": "win32", "release": "10.0.26100", "arch": "x64", "locale": "en-US" },
   "events": [
     { "name": "app_start", "ts": 1790000000000, "props": { "version": "1.0.0" } },
@@ -639,29 +640,30 @@ on and preset the endpoint for a managed fleet where consent is handled by compa
 { "telemetry": true, "telemetryEndpoint": "https://telemetry.devolity.com/v1/events" }
 ```
 
-The environment variable `DEVOWATCH_TELEMETRY=0` also forces it off. To change the built-in
+The environment variable `DEVOPING_TELEMETRY=0` also forces it off (`DEVOWATCH_TELEMETRY=0`
+remains supported for existing deployments). To change the built-in
 endpoint, edit `DEFAULT_ENDPOINT` in `src/telemetry.js` and rebuild.
 
 ### 9.3 Grafana Cloud (built-in destination)
 
 Each batch is sent as a Faro payload with the `X-Faro-Session-Id` header:
 
-| Faro field | DevoWatch value |
+| Faro field | Devoping value |
 |---|---|
-| `meta.app` | `name: DevoWatch`, `version`, `environment` (`production` for the built exe, `development` for `npm start`) |
+| `meta.app` | `name: Devoping`, `version`, `environment` (`production` for the built exe, `development` for `npm start`) |
 | `meta.user.id` | the anonymous install ID |
 | `meta.session.id` | random, new on every app start |
 | `meta.browser` | `Electron <version>`, OS `win32 <release> x64`, locale |
-| `events[]` | `app_start`, `telemetry_enabled`, `usage` (domain `devowatch`; all props as string attributes) |
-| `measurements[]` | `type: devowatch_usage` with every numeric usage counter (booleans as 0/1) |
+| `events[]` | `app_start`, `telemetry_enabled`, `usage` (domain `devoping`; all props as string attributes) |
+| `measurements[]` | `type: devoping_usage` with every numeric usage counter (booleans as 0/1) |
 
 Where to look in Grafana Cloud:
 
-- **Frontend Observability > DevoWatch app**: sessions, events and measurements.
+- **Frontend Observability > Devoping app**: sessions, events and measurements.
 - **Explore > Loki** (the Faro data source), for example:
-  - `{app_name="DevoWatch", kind="event"} | logfmt | event_name="usage"`
-  - `sum by (app_version) (count_over_time({app_name="DevoWatch", kind="event"} | logfmt | event_name="app_start" [1d]))`
-  - `{app_name="DevoWatch", kind="measurement"} | logfmt | type="devowatch_usage"` (fields `value_hosts`, `value_check_https_ok`, ...)
+  - `{app_name="Devoping", kind="event"} | logfmt | event_name="usage"`
+  - `sum by (app_version) (count_over_time({app_name="Devoping", kind="event"} | logfmt | event_name="app_start" [1d]))`
+  - `{app_name="Devoping", kind="measurement"} | logfmt | type="devoping_usage"` (fields `value_hosts`, `value_check_https_ok`, ...)
 - Filter out test data with `app_environment="production"` (logfmt field). If the `app_name`
   label in your stack differs (Grafana may use the name you gave the app), use the label shown in
   Explore's label browser.
@@ -690,33 +692,33 @@ The reference server is `server/telemetry-collector/server.js`: Node 18+, **no d
 ```bash
 # 1. DNS: point telemetry.devolity.com (A/AAAA) to the server.
 # 2. App
-sudo useradd --system --create-home --home-dir /opt/devowatch-telemetry devowatch
-sudo cp server/telemetry-collector/server.js /opt/devowatch-telemetry/
-# 3. systemd service: /etc/systemd/system/devowatch-telemetry.service
+sudo useradd --system --create-home --home-dir /opt/devoping-telemetry devoping
+sudo cp server/telemetry-collector/server.js /opt/devoping-telemetry/
+# 3. systemd service: /etc/systemd/system/devoping-telemetry.service
 ```
 
 ```ini
 [Unit]
-Description=DevoWatch telemetry collector
+Description=Devoping telemetry collector
 After=network.target
 
 [Service]
-User=devowatch
-WorkingDirectory=/opt/devowatch-telemetry
-Environment=PORT=8787 HOST=127.0.0.1 DATA_DIR=/opt/devowatch-telemetry/data TRUST_PROXY=1
+User=devoping
+WorkingDirectory=/opt/devoping-telemetry
+Environment=PORT=8787 HOST=127.0.0.1 DATA_DIR=/opt/devoping-telemetry/data TRUST_PROXY=1
 ExecStart=/usr/bin/node server.js
 Restart=always
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/opt/devowatch-telemetry/data
+ReadWritePaths=/opt/devoping-telemetry/data
 
 [Install]
 WantedBy=multi-user.target
 ```
 
 ```bash
-sudo mkdir -p /opt/devowatch-telemetry/data && sudo chown devowatch /opt/devowatch-telemetry/data
-sudo systemctl enable --now devowatch-telemetry
+sudo mkdir -p /opt/devoping-telemetry/data && sudo chown devoping /opt/devoping-telemetry/data
+sudo systemctl enable --now devoping-telemetry
 # 4. Caddy (/etc/caddy/Caddyfile) - obtains and renews the TLS certificate automatically:
 #    telemetry.devolity.com {
 #        reverse_proxy 127.0.0.1:8787
@@ -729,9 +731,9 @@ curl https://telemetry.devolity.com/healthz      # -> {"ok":true}
 
 ```bash
 cd server/telemetry-collector
-docker build -t devowatch-telemetry .
-docker run -d --name devowatch-telemetry --restart unless-stopped \
-  -p 127.0.0.1:8787:8787 -v devowatch-telemetry:/data devowatch-telemetry
+docker build -t devoping-telemetry .
+docker run -d --name devoping-telemetry --restart unless-stopped \
+  -p 127.0.0.1:8787:8787 -v devoping-telemetry:/data devoping-telemetry
 # then put Caddy / nginx / a cloud load balancer with TLS in front of port 8787
 ```
 
@@ -793,11 +795,11 @@ storage by design.
 - DB writes are batched (at most 2 s delay) and flushed on exit.
 - Bounded check queue, 90 s watchdog per job, overall HTTP deadline, ping timeout.
 - Renderer auto-reloads after a crash; checks refresh after sleep/resume; single instance per data folder.
-- Logs: `data/logs/devowatch.log` (2 MB x 3). Renderer errors are forwarded to the log.
+- Logs: `appdata/logs/devoping.log` (2 MB x 3). Renderer errors are forwarded to the log.
 
 ---
 
-## 12. Extending DevoWatch
+## 12. Extending Devoping
 
 ### Add a cloud backup provider (e.g. Dropbox, Azure Blob, SFTP)
 
@@ -859,20 +861,9 @@ to `#port-presets` in `renderer/index.html`.
 
 ## 13. Testing
 
-The repository uses scripted tests that run against the real code:
-
-- **Unit/integration (plain Node, Electron stubbed)**:
-  - backup bundle and encryption
-  - S3 SigV4, verified against the AWS reference signature
-  - S3 provider against a mock S3 server
-  - backup manager (debounce, de-duplication, retention, restore, path-traversal rejection)
-  - OAuth PKCE loopback (including forged-state rejection)
-  - telemetry end-to-end against the reference collector (on/off switch, sanitisation, policy lock)
-  - config/DB corruption recovery, login lockout and input validation
-- **End-to-end (Electron)**: a driver script `require`s `main.js`, waits for `did-finish-load`
-  and drives the UI with `webContents.executeJavaScript`. File dialogs are stubbed
-  (`dialog.showOpenDialog/showSaveDialog`) and screenshots are taken with `CopyFromScreen`.
-  Run it with `node_modules/electron/dist/electron.exe path/to/e2e.js`.
+This checkout does not currently include an automated test suite. Before release, validate the
+portable and ZIP builds on a clean Windows profile, confirm all runtime files land under
+`appdata/`, and exercise URL, ping, TCP-port, backup/restore and legacy-data migration workflows.
 
 Google Drive and OneDrive need real OAuth credentials. Test them manually with the setup in
 section 8.2 (**Save provider > Connect > Test connection > Back up now > Restore**).
@@ -887,22 +878,22 @@ section 8.2 (**Save provider > Connect > Test connection > Back up now > Restore
 | Build fails: `spawn powershell.exe ENOENT` | Add `C:\Windows\System32\WindowsPowerShell\v1.0` to `PATH` (Git Bash/MSYS2) |
 | Build fails: winCodeSign "Cannot create symbolic link" | Enable Windows Developer Mode, or pre-extract the winCodeSign archive into `%LOCALAPPDATA%\electron-builder\Cache\winCodeSign\winCodeSign-2.6.0` |
 | Portable exe takes ~15 s to start the first time | Antivirus scans the new 100 MB exe; later starts are faster. Use the ZIP build to avoid %TEMP% extraction |
-| "Configuration file is damaged and no valid backup exists" | Restore a snapshot from `backup/` (copy its `config` object into `data/config.json`), or delete `data/config.json` to start over |
+| "Configuration file is damaged and no valid backup exists" | Restore a snapshot from `appdata/backup/` (copy its `config` object into `appdata/config.json`), or delete `appdata/config.json` to start over |
 | Cloud credentials "can't be decrypted" after moving the folder | DPAPI ties them to the Windows user/PC: re-enter the keys / reconnect |
 | Encrypted backup won't restore | Set the same backup passphrase that was used to create it |
-| Telemetry switch is greyed out | Controlled by `policy.json` or `DEVOWATCH_TELEMETRY=0` |
-| Anything else | Check `data/logs/devowatch.log` (Settings > Data > Open data folder) |
+| Telemetry switch is greyed out | Controlled by `policy.json`, `DEVOPING_TELEMETRY=0`, or the legacy `DEVOWATCH_TELEMETRY=0` |
+| Anything else | Check `appdata/logs/devoping.log` (Settings > Data > Open data folder) |
 
 ---
 
 ## 15. Branding
 
-Product name **DevoWatch**, website **https://devolity.com**. Branding locations:
+Product name **Devoping**, website **https://devolity.com**. Branding locations:
 - `package.json`: `name`, `productName`, `author`, `homepage`, `build.appId`, `build.copyright`.
 - Window and title bar: `main.js`, `renderer/index.html`.
 - Logo/icon: source artwork `renderer/img/logo.png`. `npm run icon` generates `renderer/img/icon.png`,
   which is used by the UI, the window/taskbar and the exe.
-- HTTP `User-Agent`: `DevoWatch/<version> (+https://devolity.com)` in `src/checks.js` and `src/telemetry.js`.
-- Backup and export headers: `"app": "DevoWatch"`.
+- HTTP `User-Agent`: `Devoping/<version> (+https://devolity.com)` in `src/checks.js` and `src/telemetry.js`.
+- Backup and export headers: `"app": "Devoping"` (old DevoWatch backups remain importable).
 
 Icons are from Feather (MIT licence); the attribution is kept in `renderer/index.html`.

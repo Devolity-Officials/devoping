@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" />
-<title>DevoWatch</title>
+<title>Devoping</title>
 <script src="js/theme.js"></script>
 <link rel="stylesheet" href="css/style.css" />
 </head>
@@ -12,7 +12,7 @@
   <!-- TITLE BAR (window controls are drawn by Windows on the right via titleBarOverlay) -->
   <header class="titlebar" id="titlebar">
     <img src="img/icon.png" alt="" class="titlebar-logo" />
-    <span class="titlebar-name">DevoWatch</span>
+    <span class="titlebar-name">Devoping</span>
     <span class="titlebar-sep">/</span>
     <span class="titlebar-page" id="titlebar-page"></span>
     <div class="titlebar-spacer"></div>
@@ -30,7 +30,7 @@
   <div id="view-setup" class="centered-screen hidden">
     <form id="form-setup" class="auth-card">
       <img src="img/icon.png" alt="" class="auth-logo" />
-      <h1>Welcome to DevoWatch</h1>
+      <h1>Welcome to Devoping</h1>
       <p class="muted">Create the administrator account to get started.</p>
       <label>Username
         <input type="text" id="setup-username" required autocomplete="username" />
@@ -50,7 +50,7 @@
   <div id="view-login" class="centered-screen hidden">
     <form id="form-login" class="auth-card">
       <img src="img/icon.png" alt="" class="auth-logo" />
-      <h1>DevoWatch</h1>
+      <h1>Devoping</h1>
       <p class="muted">Sign in to continue.</p>
       <label>Username
         <input type="text" id="login-username" required autocomplete="username" />
@@ -71,10 +71,13 @@
           <svg class="icon"><use href="#i-dashboard" /></svg><span>Dashboard</span>
         </button>
         <button class="nav-item" data-tab="hosts">
-          <svg class="icon"><use href="#i-server" /></svg><span>Hosts</span><span class="nav-count" id="nav-count-hosts">0</span>
+          <svg class="icon"><use href="#i-server" /></svg><span>Host / URLs</span><span class="nav-count" id="nav-count-hosts">0</span>
         </button>
         <button class="nav-item" data-tab="backup">
-          <svg class="icon"><use href="#i-cloud" /></svg><span>Backup &amp; Sync</span>
+          <svg class="icon"><use href="#i-database" /></svg><span>Backup</span>
+        </button>
+        <button class="nav-item" data-tab="telnet">
+          <svg class="icon"><use href="#i-terminal" /></svg><span>Telnet</span>
         </button>
         <button class="nav-item" data-tab="settings">
           <svg class="icon"><use href="#i-settings" /></svg><span>Settings</span>
@@ -117,6 +120,9 @@
           <svg class="icon"><use href="#i-search" /></svg>
           <input type="search" id="search" placeholder="Search hosts, URLs or IPs" autocomplete="off" />
         </label>
+        <button class="btn btn-ghost" id="btn-tools">
+          <svg class="icon"><use href="#i-activity" /></svg>Test
+        </button>
         <button class="btn btn-primary" id="btn-check-all">
           <svg class="icon"><use href="#i-refresh" /></svg>Check all
         </button>
@@ -136,6 +142,12 @@
                 <button class="active" data-filter="all">All</button>
                 <button data-filter="up">Up</button>
                 <button data-filter="issues">Issues</button>
+              </div>
+              <div class="report-actions">
+                <span class="muted-small">Report:</span>
+                <button type="button" class="btn btn-ghost btn-sm" data-report-all="html">HTML</button>
+                <button type="button" class="btn btn-ghost btn-sm" data-report-all="csv">CSV</button>
+                <button type="button" class="btn btn-ghost btn-sm" data-report-all="pdf">PDF</button>
               </div>
             </div>
             <div class="table-wrap">
@@ -190,9 +202,10 @@
               <label>Name
                 <input type="text" id="host-name" placeholder="My website" required />
               </label>
-              <label>URL (http/https)
-                <input type="text" id="host-url" placeholder="https://example.com" />
+              <label>URL (HTTP/HTTPS)
+                <input type="text" id="host-url" placeholder="https://api.example.com/health" />
               </label>
+              <p class="muted-small span-all">Any HTTP(S) endpoint works, including Azure/AWS storage, OpenAI APIs and container services. HTTP(S) uses a curl-style GET; IP checks use ping (PsPing-style reachability), and TCP ports use a telnet-style connect without sending data. No external tools are required.</p>
               <label>IP address
                 <input type="text" id="host-ip" placeholder="Auto-resolved from URL if empty" />
               </label>
@@ -218,6 +231,7 @@
                   <button type="button" class="chip" data-port="8080" data-name="http-alt">8080</button>
                   <button type="button" class="chip" data-port="8443" data-name="https-alt">8443</button>
                   <button type="button" class="chip" data-port="22" data-name="ssh">SSH 22</button>
+                  <button type="button" class="chip" data-port="23" data-name="telnet">Telnet 23</button>
                   <button type="button" class="chip" data-port="21" data-name="ftp">FTP 21</button>
                   <button type="button" class="chip" data-port="3389" data-name="rdp">RDP 3389</button>
                   <button type="button" class="chip" data-port="25" data-name="smtp">SMTP 25</button>
@@ -227,10 +241,38 @@
                   <button type="button" class="chip" data-port="1433" data-name="mssql">MSSQL 1433</button>
                   <button type="button" class="chip" data-port="6379" data-name="redis">Redis 6379</button>
                 </div>
-                <span class="muted-small">Ports are checked with a TCP connection to the IP address (or the URL's host if no IP).
+                <span class="muted-small">IP checks use ping (with TCP fallback, similar to PsPing); ports use a TCP connect (telnet-style, no data sent) to the IP address or URL host.
                   Custom ports: type the number, optionally with a name - <code>9000:minio</code>.</span>
               </div>
             </div>
+            <details class="advanced-http span-all">
+              <summary>Advanced HTTP (curl) options</summary>
+              <div class="form-grid">
+                <label>Method
+                  <select id="host-method">
+                    <option value="GET">GET</option>
+                    <option value="HEAD">HEAD</option>
+                    <option value="POST">POST</option>
+                  </select>
+                </label>
+                <label>Expected status (optional)
+                  <input type="text" id="host-expect-status" placeholder="e.g. 200, 2xx or 200-299" autocomplete="off" />
+                </label>
+                <label>Response keyword match (optional)
+                  <input type="text" id="host-body-match" placeholder="Text that must appear in the response" autocomplete="off" />
+                </label>
+                <label class="switch-label">
+                  <input type="checkbox" id="host-follow-redirects" checked />
+                  <span class="switch"></span> Follow redirects
+                </label>
+                <label class="span-all">Custom headers (one per line, <code>Name: value</code>)
+                  <textarea id="host-headers" rows="3" autocomplete="off" placeholder="Authorization: Bearer token"></textarea>
+                </label>
+                <label class="span-all">Request body (used with POST)
+                  <textarea id="host-body" rows="3" autocomplete="off" placeholder='{"key":"value"}'></textarea>
+                </label>
+              </div>
+            </details>
             <p class="error-text" id="host-error"></p>
             <div class="form-actions">
               <button type="submit" class="btn btn-primary" id="host-submit-btn">Add host</button>
@@ -331,7 +373,7 @@
                 <button type="button" class="btn btn-ghost" data-export="history-csv"><svg class="icon"><use href="#i-download" /></svg>Check history CSV</button>
                 <button type="button" class="btn btn-ghost" id="btn-open-data"><svg class="icon"><use href="#i-database" /></svg>Open data folder</button>
               </div>
-              <p class="muted-small">The data folder holds config, check history, credentials (encrypted) and logs (<code>logs/devowatch.log</code>).</p>
+              <p class="muted-small">Application data, settings, history, credentials and logs are stored in the portable <code>appdata</code> folder (<code>logs/devoping.log</code>).</p>
             </div>
 
             <div class="card settings-card">
@@ -364,23 +406,22 @@
                   <input type="checkbox" id="telemetry-enabled" /><span class="switch"></span>
                 </label>
               </div>
-              <p class="muted-small">On by default - you can turn it off at any time. DevoWatch sends anonymous aggregate counts
+              <p class="muted-small">On by default - you can turn it off at any time. Devoping sends anonymous aggregate counts
                 (number of hosts, checks passed/failed, features used, app/OS version) to help improve the product.
                 Never hostnames, URLs, IP addresses, usernames or error text.</p>
               <p class="muted-small" id="telemetry-status"></p>
             </div>
 
             <div class="card settings-card">
-              <div class="card-head"><h2><img src="img/icon.png" alt="" class="about-logo" />About DevoWatch</h2></div>
+              <div class="card-head"><h2><img src="img/icon.png" alt="" class="about-logo" />About Devoping</h2></div>
               <div class="detail-row"><span>Version</span><span id="about-version">-</span></div>
               <div class="detail-row"><span>Electron</span><span id="about-electron">-</span></div>
-              <div class="detail-row"><span>Website</span><a href="#" class="link" id="about-link">devolity.com</a></div>
-              <p class="muted-small">DevoWatch - URL, IP, SSL and DNS monitoring. &copy; DevoWatch, <span id="about-year"></span>.</p>
+              <p class="muted-small">Devoping - URL, IP, SSL and DNS monitoring. &copy; Devoping, <span id="about-year"></span>.</p>
             </div>
           </div>
         </section>
 
-        <!-- BACKUP & SYNC -->
+        <!-- BACKUP -->
         <section id="tab-backup" class="tab-panel">
           <div class="card">
             <div class="card-head">
@@ -394,45 +435,11 @@
                 <code id="backup-dir"></code>. Identical snapshots are skipped.</p>
               <div class="inline-form">
                 <label>Keep last<input type="number" id="backup-local-keep" min="1" max="365" /></label>
+                <label class="switch-label"><input type="checkbox" id="backup-history" /><span class="switch"></span> Include check history in full backups</label>
                 <button type="button" class="btn btn-ghost" id="btn-backup-local-save">Save</button>
                 <div class="toolbar-spacer"></div>
                 <button type="button" class="btn btn-ghost" id="btn-backup-open"><svg class="icon"><use href="#i-database" /></svg>Open folder</button>
                 <button type="button" class="btn btn-primary" id="btn-backup-local-now"><svg class="icon"><use href="#i-download" /></svg>Full backup now</button>
-              </div>
-            </div>
-            <div class="table-wrap">
-              <table class="data-table">
-                <thead><tr><th>Backup</th><th>Type</th><th>Size</th><th>Created</th><th class="col-actions"></th></tr></thead>
-                <tbody id="backup-local-tbody"></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-head">
-              <h2><svg class="icon"><use href="#i-cloud" /></svg>Cloud backup &amp; sync</h2>
-              <span class="muted-small" id="cloud-last"></span>
-            </div>
-            <div class="card-body">
-              <div class="segmented" id="cloud-provider-select"></div>
-              <p class="muted-small" id="cloud-provider-desc"></p>
-              <form id="form-cloud-provider" class="form-grid-2" autocomplete="off"></form>
-              <p class="muted-small" id="cloud-account"></p>
-              <p class="error-text" id="cloud-error"></p>
-              <div class="btn-row">
-                <button type="button" class="btn btn-primary" id="btn-cloud-save">Save provider</button>
-                <button type="button" class="btn btn-ghost hidden" id="btn-cloud-connect">Connect</button>
-                <button type="button" class="btn btn-ghost hidden" id="btn-cloud-disconnect">Sign out</button>
-                <button type="button" class="btn btn-ghost" id="btn-cloud-test">Test connection</button>
-              </div>
-
-              <div class="divider"></div>
-              <div class="inline-form">
-                <label class="switch-label"><input type="checkbox" id="cloud-enabled" /><span class="switch"></span> Automatic cloud backup</label>
-                <label>Every (hours)<input type="number" id="cloud-interval" min="1" max="168" /></label>
-                <label>Keep last<input type="number" id="cloud-keep" min="1" max="365" /></label>
-                <label class="switch-label"><input type="checkbox" id="cloud-history" /><span class="switch"></span> Include check history</label>
-                <button type="button" class="btn btn-ghost" id="btn-cloud-options-save">Save</button>
               </div>
               <div class="inline-form">
                 <label class="grow">Backup encryption passphrase (AES-256, optional)
@@ -441,19 +448,49 @@
                 <button type="button" class="btn btn-ghost" id="btn-passphrase-save">Set</button>
                 <button type="button" class="btn btn-ghost" id="btn-passphrase-clear">Clear</button>
               </div>
-              <p class="muted-small">The passphrase applies to full backups (local and cloud). Keep it safe: encrypted backups cannot be restored without it.
-                Encrypted full backups also contain your cloud sign-in / access keys, so restoring on another PC needs no re-setup.</p>
-              <div class="progress hidden" id="cloud-progress"><div class="progress-bar"></div></div>
-              <div class="btn-row">
-                <button type="button" class="btn btn-primary" id="btn-cloud-now"><svg class="icon"><use href="#i-upload" /></svg>Back up to cloud now</button>
-                <button type="button" class="btn btn-ghost" id="btn-cloud-list"><svg class="icon"><use href="#i-refresh" /></svg>Refresh cloud backups</button>
-              </div>
+              <p class="muted-small">The passphrase applies to full backups. Keep it safe: encrypted backups cannot be restored without it.</p>
             </div>
             <div class="table-wrap">
               <table class="data-table">
-                <thead><tr><th>Cloud backup</th><th>Size</th><th>Modified</th><th class="col-actions"></th></tr></thead>
-                <tbody id="backup-cloud-tbody"></tbody>
+                <thead><tr><th>Backup</th><th>Type</th><th>Size</th><th>Created</th><th class="col-actions"></th></tr></thead>
+                <tbody id="backup-local-tbody"></tbody>
               </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- TELNET -->
+        <section id="tab-telnet" class="tab-panel">
+          <div class="card">
+            <div class="card-head">
+              <h2><svg class="icon"><use href="#i-terminal" /></svg>Telnet console</h2>
+              <div class="report-actions">
+                <button type="button" class="btn btn-ghost btn-sm" id="btn-telnet-log">Open log folder</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="btn-telnet-clear">Clear history</button>
+              </div>
+            </div>
+            <div class="card-body">
+              <form id="form-telnet" class="inline-form">
+                <label>Existing host
+                  <select id="telnet-host"><option value="">— custom —</option></select>
+                </label>
+                <label class="grow">Target (IP, hostname or URL)
+                  <input type="text" id="telnet-target" placeholder="example.com or 10.0.0.5" autocomplete="off" />
+                </label>
+                <label>Port
+                  <input type="number" id="telnet-port" min="1" max="65535" placeholder="23" />
+                </label>
+                <button type="submit" class="btn btn-primary" id="telnet-connect-btn">Connect</button>
+                <button type="button" class="btn btn-ghost" id="telnet-disconnect-btn" disabled>Disconnect</button>
+              </form>
+              <div class="chips" id="telnet-port-presets"></div>
+              <pre class="telnet-output" id="telnet-output"></pre>
+              <form id="form-telnet-send" class="telnet-send">
+                <input type="text" id="telnet-input" placeholder="Type a line and press Enter to send" autocomplete="off" disabled />
+                <button type="submit" class="btn btn-ghost" id="telnet-send-btn" disabled>Send</button>
+              </form>
+              <p class="muted-small">Opens a raw TCP socket (telnet-style) to the selected port. Every connect, sent line and response is appended to the history log in the app data folder.</p>
+              <p class="error-text" id="telnet-error"></p>
             </div>
           </div>
         </section>
@@ -467,6 +504,12 @@
     <div class="modal-content">
       <div class="modal-head">
         <h2 id="modal-title"></h2>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost btn-sm" id="modal-report-html" title="Export this host's report as HTML">HTML</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="modal-report-csv" title="Export this host's report as CSV">CSV</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="modal-report-pdf" title="Export this host's report as PDF">PDF</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="modal-chart-png" title="Save the latency chart as a PNG image">PNG</button>
+        </div>
         <button class="icon-btn" id="modal-close-btn" title="Close"><svg class="icon"><use href="#i-x" /></svg></button>
       </div>
       <div id="modal-body"></div>
@@ -492,6 +535,27 @@
       </form>
       <p class="error-text" id="dns-error"></p>
       <div id="dns-results"></div>
+    </div>
+  </div>
+
+  <!-- CONNECTIVITY TEST MODAL -->
+  <div id="modal-tools" class="modal hidden">
+    <div class="modal-content modal-wide">
+      <div class="modal-head">
+        <h2>Connectivity test</h2>
+        <button class="icon-btn" id="tools-close-btn" title="Close"><svg class="icon"><use href="#i-x" /></svg></button>
+      </div>
+      <form id="form-tools" class="dns-form">
+        <label class="dns-target">IP address, hostname or URL
+          <input type="text" id="tools-target" placeholder="example.com, 10.0.0.5 or https://api.example.com" required />
+        </label>
+        <label>Ports (optional)
+          <input type="text" id="tools-ports" placeholder="443, 80, 22, 3389" autocomplete="off" />
+        </label>
+        <button type="submit" class="btn btn-primary" id="tools-submit-btn">Run test</button>
+      </form>
+      <p class="error-text" id="tools-error"></p>
+      <div id="tools-results"></div>
     </div>
   </div>
 
@@ -521,9 +585,9 @@
     <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></symbol>
     <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
     <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></symbol>
   </svg>
 
-  <script src="js/chart.umd.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

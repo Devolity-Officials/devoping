@@ -1,4 +1,4 @@
-// Small rotating file logger (data/logs/devowatch.log, 2 MB x 3 files). Never log secrets.
+// Small rotating file logger (appdata/logs/devoping.log, 2 MB x 3 files). Never log secrets.
 const fs = require('fs');
 const path = require('path');
 const util = require('util');
@@ -12,7 +12,7 @@ let size = 0;
 function init(dir) {
   try {
     fs.mkdirSync(dir, { recursive: true });
-    file = path.join(dir, 'devowatch.log');
+    file = path.join(dir, 'devoping.log');
     size = fs.existsSync(file) ? fs.statSync(file).size : 0;
   } catch (err) {
     file = null;

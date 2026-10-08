@@ -8,7 +8,7 @@ const MAX_FAILURES = 5;
 const BASE_LOCK_MS = 30 * 1000;
 const MAX_LOCK_MS = 15 * 60 * 1000;
 // Compared against when the user doesn't exist, so response time doesn't reveal valid usernames.
-const DUMMY_HASH = bcrypt.hashSync('devowatch-dummy-password', SALT_ROUNDS);
+const DUMMY_HASH = bcrypt.hashSync('devoping-dummy-password', SALT_ROUNDS);
 
 const failures = new Map(); // lower-cased username -> { count, lockMs, lockedUntil }
 

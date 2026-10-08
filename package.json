@@ -1,11 +1,11 @@
 {
-  "name": "devowatch",
-  "productName": "DevoWatch",
+  "name": "devoping",
+  "productName": "Devoping",
   "version": "1.0.0",
-  "description": "DevoWatch - portable desktop monitoring for URLs/IPs, HTTPS, SSL certificate expiry and DNS records, with live dashboard, backup & sync.",
+  "description": "Devoping - portable desktop monitoring for URLs/IPs, HTTPS, SSL certificate expiry and DNS records, with live dashboard, backup & sync.",
   "main": "main.js",
   "author": {
-    "name": "DevoWatch",
+    "name": "Devoping",
     "url": "https://devolity.com"
   },
   "homepage": "https://devolity.com",
@@ -30,9 +30,9 @@
     "electron-builder": "^26.15.3"
   },
   "build": {
-    "appId": "com.devolity.devowatch",
-    "productName": "DevoWatch",
-    "copyright": "Copyright © 2026 DevoWatch (https://devolity.com)",
+    "appId": "com.devolity.devoping",
+    "productName": "Devoping",
+    "copyright": "Copyright © 2026 Devoping (https://devolity.com)",
     "files": [
       "main.js",
       "preload.js",
@@ -46,10 +46,10 @@
         "portable"
       ],
       "icon": "renderer/img/icon.png",
-      "artifactName": "DevoWatch-${version}-win-x64.${ext}"
+      "artifactName": "Devoping-${version}-win-x64.${ext}"
     },
     "portable": {
-      "artifactName": "DevoWatch-Portable.exe"
+      "artifactName": "Devoping-Portable.exe"
     },
     "electronFuses": {
       "runAsNode": false,

@@ -1,6 +1,7 @@
 // Registers all ipcMain handlers exposed to the renderer via preload's contextBridge.
 const fs = require('fs');
-const { app, ipcMain, dialog, shell } = require('electron');
+const net = require('net');
+const { app, ipcMain, dialog, shell, BrowserWindow } = require('electron');
 const config = require('./config');
 const db = require('./db');
 const auth = require('./auth');
@@ -9,10 +10,15 @@ const dnsTools = require('./dns-tools');
 const dnsConfig = require('./dns-config');
 const transfer = require('./transfer');
 const backup = require('./backup');
+const report = require('./report');
+const telnet = require('./telnet');
 const telemetry = require('./telemetry');
 const log = require('./logger');
 const { getDataDir, getBackupDir } = require('./paths');
-const { resolveHostIp } = require('./checks');
+const { resolveHostIp, checkPing, checkTcp, checkHttp } = require('./checks');
+const { parsePorts } = require('./ports');
+
+const HOSTNAME_RE = /^(?=.{1,253}$)([a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?)(\.[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?)*$/i;
 
 const IMPORT_RESOLVE_CONCURRENCY = 10;
 const HOMEPAGE = 'https://devolity.com';
@@ -110,10 +116,52 @@ async function mapLimit(items, limit, fn) {
   return results;
 }
 
+// Ad-hoc connectivity test for an IP/hostname/URL: ping, HTTP (if a URL) and any listed TCP ports.
+async function runConnectivityTest(rawTarget, rawPorts) {
+  const target = String(rawTarget || '').trim();
+  if (!target) throw new Error('Enter an IP address, hostname or URL');
+  if (target.length > 2048) throw new Error('Target is too long');
+  let url = null;
+  let host = target;
+  if (/^https?:\/\//i.test(target)) {
+    url = target;
+    try {
+      host = new URL(target).hostname.replace(/^\[|\]$/g, '');
+    } catch {
+      throw new Error('Invalid URL');
+    }
+  }
+  if (net.isIP(host) === 0 && !HOSTNAME_RE.test(host)) throw new Error(`Invalid target "${host}"`);
+  const ports = parsePorts(rawPorts);
+  const resolvedIp = net.isIP(host) ? host : await resolveHostIp(host);
+  const pingTarget = resolvedIp || host;
+  const [http, ping, portResults] = await Promise.all([
+    url ? checkHttp(url, { followRedirects: true }) : Promise.resolve(null),
+    checkPing(pingTarget),
+    Promise.all(ports.map(async (p) => ({ port: p.port, service: p.service || null, ...(await checkTcp(pingTarget, p.port)) }))),
+  ]);
+  return { target, url, host, resolvedIp: resolvedIp || null, http, ping, ports: portResults };
+}
+
+// Renders a report HTML document to a PDF file using an offscreen window (no scripts).
+async function writePdf(html, filePath) {
+  const win = new BrowserWindow({
+    show: false,
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: false },
+  });
+  try {
+    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    const pdf = await win.webContents.printToPDF({ printBackground: true, pageSize: 'A4' });
+    await fs.promises.writeFile(filePath, pdf);
+  } finally {
+    if (!win.isDestroyed()) win.destroy();
+  }
+}
+
 const EXPORTS = {
-  'hosts-json': { title: 'Export hosts', file: 'devowatch-hosts.json', filters: [{ name: 'JSON', extensions: ['json'] }] },
-  'hosts-csv': { title: 'Export hosts', file: 'devowatch-hosts.csv', filters: [{ name: 'CSV', extensions: ['csv'] }] },
-  'history-csv': { title: 'Export check history', file: 'devowatch-history.csv', filters: [{ name: 'CSV', extensions: ['csv'] }] },
+  'hosts-json': { title: 'Export hosts', file: 'devoping-hosts.json', filters: [{ name: 'JSON', extensions: ['json'] }] },
+  'hosts-csv': { title: 'Export hosts', file: 'devoping-hosts.csv', filters: [{ name: 'CSV', extensions: ['csv'] }] },
+  'history-csv': { title: 'Export check history', file: 'devoping-history.csv', filters: [{ name: 'CSV', extensions: ['csv'] }] },
 };
 
 function registerIpcHandlers(getMainWindow) {
@@ -124,6 +172,7 @@ function registerIpcHandlers(getMainWindow) {
     }
   };
   monitor.setBroadcaster(send);
+  telnet.init({ broadcast: send });
 
   handle('auth:needsSetup', () => auth.needsSetup());
 
@@ -147,6 +196,7 @@ function registerIpcHandlers(getMainWindow) {
     if (currentUser) log.info(`User "${currentUser.username}" signed out`);
     currentUser = null;
     monitor.stopAll();
+    telnet.stopAll();
     return true;
   });
 
@@ -315,6 +365,84 @@ function registerIpcHandlers(getMainWindow) {
     return dnsTools.lookup(target, server);
   });
 
+  // ---- connectivity test tool ----
+  handle('tools:test', async (_e, { target, ports } = {}) => {
+    requireAuth();
+    telemetry.count('feature_connectivity_test');
+    return runConnectivityTest(target, ports);
+  });
+
+  // ---- telnet console ----
+  handle('telnet:connect', (_e, { target, port } = {}) => {
+    requireAuth();
+    telemetry.count('feature_telnet');
+    return telnet.connect(target, port);
+  });
+
+  handle('telnet:send', (_e, { sessionId, data } = {}) => {
+    requireAuth();
+    return telnet.send(String(sessionId), data);
+  });
+
+  handle('telnet:disconnect', (_e, { sessionId } = {}) => {
+    requireAuth();
+    return telnet.disconnect(String(sessionId));
+  });
+
+  handle('telnet:history', () => {
+    requireAuth();
+    return telnet.readHistory();
+  });
+
+  handle('telnet:clearHistory', () => {
+    requireAuth();
+    return telnet.clearHistory();
+  });
+
+  // ---- reports ----
+  handle('report:export', async (_e, { scope, format } = {}) => {
+    requireAuth();
+    const fmt = ['html', 'csv', 'pdf'].includes(format) ? format : 'html';
+    const sc = scope && scope !== 'all' ? requireId(scope) : 'all';
+    if (sc !== 'all' && !config.getHost(sc)) throw new Error('Host not found');
+    const { retentionDays } = config.getSettings();
+    const base = sc === 'all' ? 'devoping-report' : `devoping-report-${sc.slice(0, 8)}`;
+    const { canceled, filePath } = await dialog.showSaveDialog(getMainWindow(), {
+      title: 'Export report',
+      defaultPath: `${base}.${fmt}`,
+      filters: [{ name: fmt.toUpperCase(), extensions: [fmt] }],
+    });
+    if (canceled || !filePath) return { canceled: true };
+    telemetry.count(`feature_report_${fmt}`);
+    if (fmt === 'csv') {
+      await fs.promises.writeFile(filePath, report.toCsv({ scope: sc, days: retentionDays }), 'utf8');
+    } else {
+      const html = report.toHtml({ scope: sc, days: retentionDays });
+      if (fmt === 'html') await fs.promises.writeFile(filePath, html, 'utf8');
+      else await writePdf(html, filePath);
+    }
+    log.info(`Exported ${fmt} report (${sc}) to ${filePath}`);
+    return { filePath };
+  });
+
+  handle('report:saveImage', async (_e, { name, dataUrl } = {}) => {
+    requireAuth();
+    const m = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ''));
+    if (!m) throw new Error('Invalid image data');
+    const buffer = Buffer.from(m[1], 'base64');
+    if (buffer.length > 20 * 1024 * 1024) throw new Error('Image is too large');
+    const safe = String(name || 'chart').replace(/[^a-z0-9_-]+/gi, '_').slice(0, 80) || 'chart';
+    const { canceled, filePath } = await dialog.showSaveDialog(getMainWindow(), {
+      title: 'Save chart image',
+      defaultPath: `${safe}.png`,
+      filters: [{ name: 'PNG image', extensions: ['png'] }],
+    });
+    if (canceled || !filePath) return { canceled: true };
+    await fs.promises.writeFile(filePath, buffer);
+    log.info(`Saved chart image to ${filePath}`);
+    return { filePath };
+  });
+
   // ---- support ----
   handle('app:openDataFolder', async () => {
     requireAuth();
@@ -339,9 +467,9 @@ function registerIpcHandlers(getMainWindow) {
     return true;
   });
 
-  handle('app:info', () => ({ name: 'DevoWatch', version: app.getVersion(), homepage: HOMEPAGE, electron: process.versions.electron }));
+  handle('app:info', () => ({ name: 'Devoping', version: app.getVersion(), homepage: HOMEPAGE, electron: process.versions.electron }));
 
-  // Only the DevoWatch website may be opened from the UI (in the default browser).
+  // Only the product website may be opened from the UI (in the default browser).
   handle('app:openExternal', async (_e, url) => {
     const u = new URL(String(url));
     if (u.protocol !== 'https:' || !['devolity.com', 'www.devolity.com'].includes(u.hostname)) throw new Error('Link not allowed');
@@ -361,26 +489,6 @@ function registerIpcHandlers(getMainWindow) {
     return backup.getStatus();
   });
 
-  handle('backup:setProvider', (_e, { id, values } = {}) => {
-    requireAuth();
-    return backup.setProvider(String(id), values && typeof values === 'object' ? values : {});
-  });
-
-  handle('backup:connect', (_e, id) => {
-    requireAuth();
-    return backup.connect(String(id));
-  });
-
-  handle('backup:disconnect', (_e, id) => {
-    requireAuth();
-    return backup.disconnect(String(id));
-  });
-
-  handle('backup:test', () => {
-    requireAuth();
-    return backup.testConnection();
-  });
-
   handle('backup:setPassphrase', (_e, passphrase) => {
     requireAuth();
     return backup.setPassphrase(passphrase);
@@ -390,17 +498,6 @@ function registerIpcHandlers(getMainWindow) {
     requireAuth();
     telemetry.count('feature_backup_local');
     return backup.backupLocalNow();
-  });
-
-  handle('backup:runCloud', () => {
-    requireAuth();
-    telemetry.count('feature_backup_cloud');
-    return backup.backupCloudNow('manual');
-  });
-
-  handle('backup:listCloud', () => {
-    requireAuth();
-    return backup.listCloud();
   });
 
   handle('backup:restore', (_e, { source, name } = {}) => {

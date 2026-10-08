@@ -10,6 +10,7 @@ renderer/js/chart.umd.js
 
 # --- Runtime data: never commit (config, users, check history, credentials, logs, backups) ---
 # Anchored with "/" so the source folder src/backup/ is NOT ignored.
+/appdata/
 /data/
 /backup/
 *.corrupt-*

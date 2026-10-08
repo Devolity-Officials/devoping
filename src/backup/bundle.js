@@ -1,13 +1,13 @@
 // Backup file format.
 //   plain:     gzip(JSON envelope)                       -> *.json.gz   (or *.json for config snapshots)
 //   encrypted: "DWENC1" | salt(16) | iv(12) | tag(16) | AES-256-GCM(gzip(JSON))  -> *.json.gz.enc
-// Envelope: { app: 'DevoWatch', format: 1, kind: 'config'|'full', createdAt, appVersion, config, db?, secrets? }
+// Envelope: { app: 'Devoping', format: 1, kind: 'config'|'full', createdAt, appVersion, config, db?, secrets? }
 // `db` is the base64 SQLite file (check history) and is present only in 'full' backups.
 // `secrets` (cloud credentials) is present only in encrypted full backups.
 const zlib = require('zlib');
 const crypto = require('crypto');
 
-const APP = 'DevoWatch';
+const APP = 'Devoping';
 const FORMAT = 1;
 const MAGIC = Buffer.from('DWENC1');
 const MAX_BACKUP_BYTES = 200 * 1024 * 1024;
@@ -70,9 +70,9 @@ function unpack(buffer, passphrase) {
   try {
     env = JSON.parse(data.toString('utf8'));
   } catch {
-    throw new Error('Not a DevoWatch backup file');
+    throw new Error('Not a Devoping backup file');
   }
-  if (!env || env.app !== APP || env.format !== FORMAT || !env.config) throw new Error('Not a DevoWatch backup file');
+  if (!env || ![APP, 'DevoWatch'].includes(env.app) || env.format !== FORMAT || !env.config) throw new Error('Not a Devoping backup file');
   return { ...env, db: env.db ? Buffer.from(env.db, 'base64') : null };
 }
 

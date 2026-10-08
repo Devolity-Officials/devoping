@@ -183,7 +183,7 @@ function exportHosts(format) {
   }));
   if (format === 'csv') return { content: toCsv(HOST_FIELDS, hosts), count: hosts.length };
   const payload = {
-    app: 'DevoWatch',
+    app: 'Devoping',
     format: 1,
     exportedAt: new Date().toISOString(),
     hosts,
@@ -194,6 +194,62 @@ function exportHosts(format) {
 function exportHistory(rows) {
   const mapped = rows.map((r) => ({ ...r, timestamp: new Date(r.timestamp).toISOString(), is_up: r.is_up ? 'up' : 'down' }));
   return { content: toCsv(HISTORY_FIELDS, mapped), count: rows.length };
+}
+
+const HTTP_METHODS = ['GET', 'HEAD', 'POST'];
+const HEADER_NAME_RE = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
+
+function validateMethod(v) {
+  const m = (String(v ?? 'GET').trim().toUpperCase()) || 'GET';
+  if (!HTTP_METHODS.includes(m)) throw new Error('Method must be GET, HEAD or POST');
+  return m;
+}
+
+function validateExpectStatus(v) {
+  const s = String(v ?? '').trim();
+  if (!s) return '';
+  if (s.length > 100) throw new Error('Expected status list is too long');
+  for (const token of s.split(/[\s,]+/).filter(Boolean)) {
+    if (!/^([1-5]xx|\d{3}(-\d{3})?)$/i.test(token)) throw new Error(`Invalid status pattern "${token}" (use e.g. 200, 2xx or 200-299)`);
+  }
+  return s;
+}
+
+// Accepts an array of { name, value }, a plain object, or multiline "Name: value" text.
+function parseHeaderInput(v) {
+  let entries = [];
+  if (Array.isArray(v)) entries = v.map((h) => [h && h.name, h && h.value]);
+  else if (v && typeof v === 'object') entries = Object.entries(v);
+  else if (typeof v === 'string') {
+    entries = v.split(/\r?\n/).map((line) => {
+      const i = line.indexOf(':');
+      return i === -1 ? [line.trim(), ''] : [line.slice(0, i), line.slice(i + 1)];
+    });
+  }
+  const out = [];
+  for (const [rawName, rawValue] of entries) {
+    const name = String(rawName ?? '').trim();
+    const value = String(rawValue ?? '').trim();
+    if (!name) continue;
+    if (!HEADER_NAME_RE.test(name)) throw new Error(`Invalid header name "${name}"`);
+    if (/[\r\n]/.test(value)) throw new Error('Header values cannot contain line breaks');
+    if (name.length > 100 || value.length > 2000) throw new Error('Header is too long');
+    out.push({ name, value });
+    if (out.length > 30) throw new Error('At most 30 custom headers');
+  }
+  return out;
+}
+
+function validateKeyword(v) {
+  const s = String(v ?? '');
+  if (s.length > 200) throw new Error('Response keyword must be 200 characters or fewer');
+  return s;
+}
+
+function validateRequestBody(v) {
+  const s = String(v ?? '');
+  if (s.length > 10000) throw new Error('Request body must be 10000 characters or fewer');
+  return s;
 }
 
 // Validates host data coming from the UI. For updates (partial) only the provided fields are checked.
@@ -213,6 +269,12 @@ function validateHostInput(raw, { partial = false } = {}) {
   if (has('ip')) out.ip = normalizeIp(raw.ip);
   if (has('ports')) out.ports = parsePorts(raw.ports);
   if (has('pingPort')) out.pingPort = parsePingPort(raw.pingPort);
+  if (has('method')) out.method = validateMethod(raw.method);
+  if (has('expectStatus')) out.expectStatus = validateExpectStatus(raw.expectStatus);
+  if (has('headers')) out.headers = parseHeaderInput(raw.headers);
+  if (has('bodyMatch')) out.bodyMatch = validateKeyword(raw.bodyMatch);
+  if (has('body')) out.body = validateRequestBody(raw.body);
+  if (Object.prototype.hasOwnProperty.call(raw, 'followRedirects')) out.followRedirects = raw.followRedirects !== false;
   if (has('intervalMinutes')) {
     const n = Math.round(Number(raw.intervalMinutes));
     if (!(n >= 1 && n <= 1440)) throw new Error('Interval must be between 1 and 1440 minutes');

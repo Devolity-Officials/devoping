@@ -1,40 +1,48 @@
-// Keeps all app data next to the executable so the whole folder / portable exe can be copied
-// elsewhere without losing data:
-//   <root>/data/     config.json, monitoring.db, secrets.json, logs/
-//   <root>/backup/   automatic configuration backups (and manual full backups)
-// <root> is the exe folder, or the user profile if that folder is read-only.
+// Keeps all app data, including Electron's userData, under <install>/appdata.
 const path = require('path');
 const fs = require('fs');
 const { app } = require('electron');
+let legacyDirectories = [];
 
-let cachedRootDir = null;
-
-function isWritableDir(dir) {
-  try {
-    fs.mkdirSync(dir, { recursive: true });
-    const probe = path.join(dir, `.write-test-${process.pid}`);
-    fs.writeFileSync(probe, '');
-    fs.unlinkSync(probe);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// Folder the user launched DevoWatch from (where an administrator may place policy.json).
 function getInstallDir() {
-  // electron-builder's portable exe runs from a temp extraction dir; PORTABLE_EXECUTABLE_DIR is the real exe location.
   return app.isPackaged
     ? process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(app.getPath('exe'))
     : path.join(__dirname, '..');
 }
 
-function getRootDir() {
-  if (cachedRootDir) return cachedRootDir;
-  const base = getInstallDir();
-  // Read-only locations (Program Files, locked-down shares) fall back to the user profile.
-  cachedRootDir = isWritableDir(path.join(base, 'data')) ? base : app.getPath('userData');
-  return cachedRootDir;
+function copyMissing(source, destination) {
+  if (!fs.existsSync(source)) return;
+  fs.mkdirSync(destination, { recursive: true });
+  for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+    const from = path.join(source, entry.name);
+    const to = path.join(destination, entry.name);
+    if (!fs.existsSync(to)) {
+      fs.cpSync(from, to, { recursive: true, errorOnExist: false, force: false });
+    } else if (entry.isDirectory() && fs.statSync(to).isDirectory()) {
+      copyMissing(from, to);
+    }
+  }
+}
+
+function configurePortableData() {
+  const installDir = getInstallDir();
+  const appDataDir = path.join(installDir, 'appdata');
+  const roamingDir = app.getPath('appData');
+
+  fs.mkdirSync(appDataDir, { recursive: true });
+  legacyDirectories = [app.getPath('userData'), path.join(roamingDir, 'DevoWatch'), path.join(roamingDir, 'devowatch')];
+  app.setPath('userData', appDataDir);
+  app.setPath('sessionData', path.join(appDataDir, 'session'));
+  return appDataDir;
+}
+
+function migrateLegacyData() {
+  const appDataDir = path.join(getInstallDir(), 'appdata');
+  copyMissing(path.join(getInstallDir(), 'data'), appDataDir);
+  copyMissing(path.join(getInstallDir(), 'backup'), path.join(appDataDir, 'backup'));
+  for (const legacyDir of legacyDirectories) {
+    if (path.resolve(legacyDir) !== path.resolve(appDataDir)) copyMissing(legacyDir, appDataDir);
+  }
 }
 
 function ensureDir(dir) {
@@ -43,11 +51,11 @@ function ensureDir(dir) {
 }
 
 function getDataDir() {
-  return ensureDir(path.join(getRootDir(), 'data'));
+  return ensureDir(path.join(getInstallDir(), 'appdata'));
 }
 
 function getBackupDir() {
-  return ensureDir(path.join(getRootDir(), 'backup'));
+  return ensureDir(path.join(getDataDir(), 'backup'));
 }
 
 function getConfigPath() {
@@ -62,4 +70,4 @@ function getLogDir() {
   return path.join(getDataDir(), 'logs');
 }
 
-module.exports = { getInstallDir, getRootDir, getDataDir, getBackupDir, getConfigPath, getDbPath, getLogDir };
+module.exports = { getInstallDir, configurePortableData, migrateLegacyData, getDataDir, getBackupDir, getConfigPath, getDbPath, getLogDir };

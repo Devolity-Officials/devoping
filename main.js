@@ -2,7 +2,9 @@ const { app, BrowserWindow, Menu, dialog, powerMonitor, session } = require('ele
 const path = require('path');
 const { pathToFileURL } = require('url');
 const log = require('./src/logger');
-const { getLogDir, getDataDir } = require('./src/paths');
+const paths = require('./src/paths');
+
+paths.configurePortableData();
 
 const INDEX_HTML = path.join(__dirname, 'renderer', 'index.html');
 const INDEX_URL = pathToFileURL(INDEX_HTML).href;
@@ -25,10 +27,17 @@ if (!app.requestSingleInstanceLock()) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
   });
-  start();
+  try {
+    paths.migrateLegacyData();
+    start();
+  } catch (err) {
+    dialog.showErrorBox('Devoping could not migrate application data', String(err.message || err));
+    app.exit(1);
+  }
 }
 
 function start() {
+  const { getLogDir, getDataDir } = paths;
   process.on('uncaughtException', (err) => log.error(`Uncaught exception: ${err.stack || err}`));
   process.on('unhandledRejection', (reason) => log.error(`Unhandled rejection: ${reason && reason.stack ? reason.stack : reason}`));
 
@@ -37,15 +46,21 @@ function start() {
   app.whenReady().then(async () => {
     try {
       log.init(getLogDir());
-      log.info(`DevoWatch ${app.getVersion()} starting (Electron ${process.versions.electron}, data: ${getDataDir()})`);
+      log.info(`Devoping ${app.getVersion()} starting (Electron ${process.versions.electron}, data: ${getDataDir()})`);
       lockDownSession();
       Menu.setApplicationMenu(null);
 
-      db = require('./src/db');
+      // Config is a small sync read; load it and register IPC, then paint the window immediately.
       require('./src/config').load();
-      await db.initDb();
       monitor = require('./src/monitor');
       const broadcast = require('./src/ipc').registerIpcHandlers(() => mainWindow);
+      createWindow();
+
+      // The SQLite history DB (WASM) is the heaviest step; initialise it after the UI is up.
+      db = require('./src/db');
+      await db.initDb();
+
+      // Non-critical for first paint and login: start these once the window is shown.
       backup = require('./src/backup');
       backup.init({
         broadcast,
@@ -60,10 +75,9 @@ function start() {
       });
       telemetry = require('./src/telemetry');
       telemetry.init({ version: app.getVersion(), electron: process.versions.electron, locale: app.getLocale(), environment: app.isPackaged ? 'production' : 'development' });
-      createWindow();
     } catch (err) {
       log.error(`Startup failed: ${err.stack || err}`);
-      dialog.showErrorBox('DevoWatch could not start', String(err.message || err));
+      dialog.showErrorBox('Devoping could not start', String(err.message || err));
       app.exit(1);
       return;
     }
@@ -87,6 +101,7 @@ function start() {
     event.preventDefault();
     try {
       if (monitor) monitor.stopAll();
+      require('./src/telnet').stopAll();
       if (backup) backup.stop();
     } catch (err) {
       log.error(`Shutdown error: ${err.stack || err}`);
@@ -96,7 +111,7 @@ function start() {
       .finally(() => {
         try {
           if (db) db.close();
-          log.info('DevoWatch stopped');
+          log.info('Devoping stopped');
         } catch (err) {
           log.error(`Shutdown error: ${err.stack || err}`);
         }
@@ -138,12 +153,14 @@ function createWindow() {
     height: 860,
     minWidth: 1000,
     minHeight: 650,
-    title: 'DevoWatch',
+    title: 'Devoping',
     icon: path.join(__dirname, 'renderer', 'img', 'icon.png'),
     backgroundColor: TITLEBAR.background,
     // Custom themed title bar; Windows still draws (and recolours) the min/max/close buttons.
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: TITLEBAR.color, symbolColor: TITLEBAR.symbolColor, height: TITLEBAR.height },
+    // Show only once the first frame is painted, to avoid a white flash and feel faster.
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -153,6 +170,10 @@ function createWindow() {
       spellcheck: false,
       devTools: !app.isPackaged,
     },
+  });
+
+  mainWindow.once('ready-to-show', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
   });
 
   mainWindow.loadFile(INDEX_HTML);
