@@ -351,6 +351,38 @@ input:focus, select:focus {
 .sync-meta { font-size: 11px; color: hsl(var(--muted-foreground)); }
 @keyframes breathe { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.3); opacity: 0.4; } }
 
+/* ---------- sidebar alerts ---------- */
+.sidebar { min-height: 0; }
+.sidebar > :not(.alert-list) { flex-shrink: 0; }
+.sidebar-label-row { display: flex; align-items: center; gap: 6px; }
+.sidebar-label-row #btn-alerts-read { margin-left: auto; }
+.alert-unread {
+  padding: 0 6px; font-size: 10px; line-height: 16px; letter-spacing: 0;
+  color: white; background: hsl(var(--destructive)); border-radius: 999px;
+}
+.icon-btn-xs { width: 22px; height: 22px; border-radius: 5px; }
+.icon-btn-xs .icon { width: 13px; height: 13px; }
+.alert-list { display: flex; flex-direction: column; gap: 4px; min-height: 40px; overflow-y: auto; flex: 0 1 auto; }
+.alert-item {
+  display: flex; align-items: flex-start; gap: 8px; width: 100%;
+  padding: 7px 8px;
+  font: inherit; text-align: left; color: hsl(var(--foreground));
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border) / 0.8);
+  border-left: 3px solid hsl(var(--tone, var(--muted-foreground)));
+  border-radius: 7px; cursor: pointer;
+}
+.alert-item:hover { background: hsl(var(--foreground) / 0.05); }
+.alert-item.sev-danger { --tone: var(--destructive); }
+.alert-item.sev-warning { --tone: var(--warning); }
+.alert-item.sev-success { --tone: var(--success); }
+.alert-item:not(.unread) { opacity: 0.72; }
+.alert-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.alert-title { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alert-msg { font-size: 11px; color: hsl(var(--muted-foreground)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alert-time { font-size: 10px; color: hsl(var(--muted-foreground)); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.alert-empty { padding: 8px; font-size: 11px; color: hsl(var(--muted-foreground)); }
+
 .progress { height: 4px; border-radius: 999px; background: hsl(var(--muted)); overflow: hidden; position: relative; }
 .progress-bar { height: 100%; width: 0; border-radius: inherit; background: hsl(var(--primary)); transition: width 250ms ease; }
 .progress.indeterminate .progress-bar { width: 35% !important; animation: slide 1.1s ease-in-out infinite; }
@@ -364,8 +396,17 @@ input:focus, select:focus {
   padding-top: 12px;
   border-top: 1px solid hsl(var(--border) / 0.7);
 }
-.user-chip { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; font-size: 13px; font-weight: 500; }
-.user-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-chip {
+  display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;
+  padding: 4px 6px 4px 4px;
+  font: inherit; font-size: 13px; font-weight: 500; text-align: left;
+  color: inherit; background: transparent; border: none; border-radius: 8px; cursor: pointer;
+}
+.user-chip:hover { background: hsl(var(--foreground) / 0.06); }
+.user-chip-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.user-chip-text span, .user-chip-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-chip-text small { font-size: 11px; font-weight: 400; color: hsl(var(--muted-foreground)); }
+.user-chip-text small:empty { display: none; }
 .avatar {
   width: 28px; height: 28px; flex: 0 0 auto;
   display: grid; place-items: center;
@@ -677,6 +718,17 @@ textarea:focus { outline: none; border-color: hsl(var(--ring) / 0.7); box-shadow
 .link:hover { text-decoration: underline; }
 .about-logo { width: 18px; height: 18px; border-radius: 50%; }
 #cloud-progress { margin: 2px 0; }
+
+/* ---------- profile ---------- */
+.profile-head { display: flex; align-items: center; gap: 12px; }
+.avatar-lg { width: 48px; height: 48px; font-size: 18px; }
+.profile-name { font-size: 15px; font-weight: 650; }
+.profile-facts { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; }
+.profile-facts .detail-row { font-size: 12px; }
+
+/* ---------- domains ---------- */
+.whois-status { display: flex; flex-wrap: wrap; gap: 4px; }
+.whois-raw pre { max-height: 320px; }
 
 /* ---------- modals ---------- */
 .modal {

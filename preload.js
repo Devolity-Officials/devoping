@@ -3,11 +3,24 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('api', {
   // auth
   needsSetup: () => ipcRenderer.invoke('auth:needsSetup'),
-  createFirstUser: (username, password) => ipcRenderer.invoke('auth:createFirstUser', { username, password }),
+  createFirstUser: (username, password, profile) => ipcRenderer.invoke('auth:createFirstUser', { username, password, profile }),
   login: (username, password) => ipcRenderer.invoke('auth:login', { username, password }),
   logout: () => ipcRenderer.invoke('auth:logout'),
   currentUser: () => ipcRenderer.invoke('auth:currentUser'),
   changePassword: (oldPassword, newPassword) => ipcRenderer.invoke('auth:changePassword', { oldPassword, newPassword }),
+  updateProfile: (patch) => ipcRenderer.invoke('auth:updateProfile', patch),
+
+  // alerts
+  listAlerts: () => ipcRenderer.invoke('alerts:list'),
+  markAlertsRead: () => ipcRenderer.invoke('alerts:markRead'),
+  clearAlerts: () => ipcRenderer.invoke('alerts:clear'),
+
+  // domains (WHOIS / expiry)
+  listDomains: () => ipcRenderer.invoke('domains:list'),
+  whoisLookup: (target) => ipcRenderer.invoke('domains:lookup', target),
+  addDomain: (name) => ipcRenderer.invoke('domains:add', name),
+  removeDomain: (id) => ipcRenderer.invoke('domains:remove', id),
+  checkDomain: (id) => ipcRenderer.invoke('domains:check', id),
 
   // hosts
   listHosts: () => ipcRenderer.invoke('hosts:list'),
@@ -78,6 +91,8 @@ contextBridge.exposeInMainWorld('api', {
   onTransferProgress: (callback) => subscribe('transfer:progress', callback),
   onBackupProgress: (callback) => subscribe('backup:progress', callback),
   onBackupChanged: (callback) => subscribe('backup:changed', callback),
+  onAlert: (callback) => subscribe('alerts:new', callback),
+  onDomainsChanged: (callback) => subscribe('domains:changed', callback),
 });
 
 function subscribe(channel, callback) {

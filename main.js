@@ -6,6 +6,12 @@ const paths = require('./src/paths');
 
 paths.configurePortableData();
 
+// Lean footprint: a simple dashboard doesn't need the GPU process, a spare pre-spawned renderer
+// or V8's speed-over-memory heuristics.
+app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('disable-features', 'SpareRendererForSitePerProcess');
+app.commandLine.appendSwitch('js-flags', '--optimize-for-size');
+
 const INDEX_HTML = path.join(__dirname, 'renderer', 'index.html');
 const INDEX_URL = pathToFileURL(INDEX_HTML).href;
 // Must match the dark theme's --sidebar/--foreground/--background in style.css. The overlay is
@@ -59,6 +65,7 @@ function start() {
       // The SQLite history DB (WASM) is the heaviest step; initialise it after the UI is up.
       db = require('./src/db');
       await db.initDb();
+      require('./src/alerts').seed(db.getLatestCheckPerHost());
 
       // Non-critical for first paint and login: start these once the window is shown.
       backup = require('./src/backup');
@@ -102,6 +109,8 @@ function start() {
     try {
       if (monitor) monitor.stopAll();
       require('./src/telnet').stopAll();
+      require('./src/domains').stop();
+      require('./src/alerts').flush();
       if (backup) backup.stop();
     } catch (err) {
       log.error(`Shutdown error: ${err.stack || err}`);
@@ -168,6 +177,10 @@ function createWindow() {
       sandbox: true,
       webviewTag: false,
       spellcheck: false,
+      backgroundThrottling: true,
+      enableWebSQL: false,
+      // Cache compiled scripts on first run so later launches parse less JS.
+      v8CacheOptions: 'bypassHeatCheck',
       devTools: !app.isPackaged,
     },
   });

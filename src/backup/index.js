@@ -53,6 +53,8 @@ function configHash(cfg) {
     delete copy.settings.telemetry.lastResult;
   }
   copy.hosts = (copy.hosts || []).map(({ updatedAt, ...h }) => (h.ipAuto ? { ...h, ip: '' } : h));
+  copy.domains = (copy.domains || []).map(({ id, name, addedAt }) => ({ id, name, addedAt }));
+  copy.users = (copy.users || []).map(({ lastLoginAt, previousLoginAt, loginCount, ...u }) => u);
   return crypto.createHash('sha256').update(JSON.stringify(copy)).digest('hex');
 }
 

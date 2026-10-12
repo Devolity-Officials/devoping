@@ -22,8 +22,9 @@ const SCHEMA = 1;
 // Grafana Cloud Frontend Observability (Faro) collector; the app key in the URL is public by design.
 const DEFAULT_ENDPOINT = 'https://faro-collector-prod-ap-southeast-1.grafana.net/collect/527a72708b642cdc6b4dbda702678f92';
 const FARO_RE = /^https:\/\/faro-collector-[a-z0-9-]+\.grafana\.net\/collect\/[a-z0-9]+\/?$/i;
-const FLUSH_INTERVAL_MS = 60 * 60 * 1000;
-const FIRST_FLUSH_DELAY_MS = 30 * 1000;
+// Usage is auto-submitted on this interval (a heartbeat 'usage' event is sent every time).
+const FLUSH_INTERVAL_MS = 15 * 60 * 1000;
+const FIRST_FLUSH_DELAY_MS = 10 * 1000;
 const EXIT_FLUSH_TIMEOUT_MS = 3000;
 const MAX_QUEUE = 500;
 const MAX_BACKOFF_MS = 24 * 60 * 60 * 1000;
@@ -152,6 +153,7 @@ function usageEvent() {
       hosts_with_ip: hosts.filter((h) => h.ip).length,
       hosts_with_ports: hosts.filter((h) => Array.isArray(h.ports) && h.ports.length).length,
       ports_monitored: hosts.reduce((n, h) => n + (Array.isArray(h.ports) ? h.ports.length : 0), 0),
+      domains_watched: config.getDomains().length,
       global_dns: (config.getSettings().dnsServers || []).length > 0,
       ...counters,
     }),
@@ -197,11 +199,11 @@ function faroPayload(events) {
   };
 }
 
-async function flush({ force = false, timeoutMs = 15000 } = {}) {
+async function flush({ force = false, heartbeat = false, timeoutMs = 15000 } = {}) {
   const eff = effective();
   if (!eff.enabled || sending) return { skipped: true };
   if (!force && Date.now() < nextAttemptAt) return { skipped: true };
-  if (Object.keys(counters).length || Date.now() - periodStart >= FLUSH_INTERVAL_MS) {
+  if (heartbeat || Object.keys(counters).length || Date.now() - periodStart >= FLUSH_INTERVAL_MS) {
     enqueue('usage', usageEvent().props);
     counters = {};
     periodStart = Date.now();
@@ -245,6 +247,9 @@ function getStatus() {
     enabled: eff.enabled,
     locked: eff.policy.locked,
     lockedReason: eff.policy.source || null,
+    intervalMinutes: FLUSH_INTERVAL_MS / 60000,
+    lastSentAt: eff.settings.lastSentAt || null,
+    lastResult: eff.settings.lastResult || null,
   };
 }
 
@@ -277,8 +282,8 @@ function init(info) {
   if (eff.enabled && !eff.settings.installId) saveSettings({ installId: crypto.randomUUID() });
   if (eff.policy.locked) log.info(`Telemetry ${eff.enabled ? 'enabled' : 'disabled'} by ${eff.policy.source}`);
   enqueue('app_start', { version: appInfo.version.replace(/[^0-9a-z.-]/gi, '') });
-  timer = setInterval(() => flush(), FLUSH_INTERVAL_MS);
-  setTimeout(() => flush(), FIRST_FLUSH_DELAY_MS);
+  timer = setInterval(() => flush({ heartbeat: true }), FLUSH_INTERVAL_MS);
+  setTimeout(() => flush({ heartbeat: true }), FIRST_FLUSH_DELAY_MS);
 }
 
 // Sends whatever is queued before the app exits (bounded so quitting never hangs).

@@ -12,9 +12,12 @@ const DEFAULT_CONFIG = {
     defaultIntervalMinutes: 5,
     sslWarnDays: 30,
     sslCriticalDays: 7,
+    domainWarnDays: 30,
+    domainCriticalDays: 7,
     dnsServers: [],
   },
   hosts: [],
+  domains: [],
   users: [],
 };
 
@@ -27,6 +30,7 @@ function parseConfig(raw) {
   return {
     settings: { ...DEFAULT_CONFIG.settings, ...(parsed.settings || {}) },
     hosts: Array.isArray(parsed.hosts) ? parsed.hosts.filter((h) => h && typeof h.id === 'string') : [],
+    domains: Array.isArray(parsed.domains) ? parsed.domains.filter((d) => d && typeof d.id === 'string' && typeof d.name === 'string') : [],
     users: Array.isArray(parsed.users) ? parsed.users.filter((u) => u && u.username && u.passwordHash) : [],
   };
 }
@@ -175,6 +179,40 @@ function deleteHost(id) {
   return cfg.hosts.length < before;
 }
 
+// ---- domains (WHOIS / expiry watch list) ----
+function getDomains() {
+  return load().domains;
+}
+
+function getDomain(id) {
+  return load().domains.find((d) => d.id === id) || null;
+}
+
+function addDomain(name) {
+  const cfg = load();
+  const domain = { id: crypto.randomUUID(), name, addedAt: new Date().toISOString() };
+  cfg.domains.push(domain);
+  save();
+  return domain;
+}
+
+function updateDomain(id, partial) {
+  const cfg = load();
+  const idx = cfg.domains.findIndex((d) => d.id === id);
+  if (idx === -1) return null;
+  cfg.domains[idx] = { ...cfg.domains[idx], ...partial, id: cfg.domains[idx].id, name: cfg.domains[idx].name };
+  save();
+  return cfg.domains[idx];
+}
+
+function deleteDomain(id) {
+  const cfg = load();
+  const before = cfg.domains.length;
+  cfg.domains = cfg.domains.filter((d) => d.id !== id);
+  save();
+  return cfg.domains.length < before;
+}
+
 // ---- users ----
 function getUsers() {
   return load().users;
@@ -217,6 +255,11 @@ module.exports = {
   addHosts,
   updateHost,
   deleteHost,
+  getDomains,
+  getDomain,
+  addDomain,
+  updateDomain,
+  deleteDomain,
   getUsers,
   hasUsers,
   findUser,

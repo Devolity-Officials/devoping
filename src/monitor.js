@@ -6,6 +6,7 @@ const db = require('./db');
 const { checkHttp, checkPing, checkTcp, resolveHostIp } = require('./checks');
 const log = require('./logger');
 const telemetry = require('./telemetry');
+const alerts = require('./alerts');
 
 const MAX_CONCURRENT = 8;
 const ACTIVITY_THROTTLE_MS = 120;
@@ -158,6 +159,7 @@ async function runHostChecks(host) {
     broadcastFn('monitor:result', row);
     telemetry.count(`check_${row.check_type}_${row.is_up ? 'ok' : 'fail'}`);
   });
+  if (config.getHost(host.id)) alerts.recordHostResults(host, results);
   return results;
 }
 

@@ -9,7 +9,8 @@ const { getDbPath } = require('./paths');
 const { writeFileAtomic, quarantine } = require('./fsutil');
 const log = require('./logger');
 
-const FLUSH_DELAY_MS = 2000;
+// Each flush serialises the whole DB into a new buffer; batching writes keeps CPU and memory churn low.
+const FLUSH_DELAY_MS = 15000;
 
 let SQL = null;
 let db = null;

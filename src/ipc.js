@@ -13,6 +13,8 @@ const backup = require('./backup');
 const report = require('./report');
 const telnet = require('./telnet');
 const telemetry = require('./telemetry');
+const alerts = require('./alerts');
+const domains = require('./domains');
 const log = require('./logger');
 const { getDataDir, getBackupDir } = require('./paths');
 const { resolveHostIp, checkPing, checkTcp, checkHttp } = require('./checks');
@@ -95,6 +97,8 @@ function validateSettings(partial) {
   if ('defaultIntervalMinutes' in partial) out.defaultIntervalMinutes = intSetting(partial.defaultIntervalMinutes, 1, 1440, 'Default interval');
   if ('sslWarnDays' in partial) out.sslWarnDays = intSetting(partial.sslWarnDays, 1, 365, 'SSL warning threshold');
   if ('sslCriticalDays' in partial) out.sslCriticalDays = intSetting(partial.sslCriticalDays, 1, 365, 'SSL critical threshold');
+  if ('domainWarnDays' in partial) out.domainWarnDays = intSetting(partial.domainWarnDays, 1, 365, 'Domain warning threshold');
+  if ('domainCriticalDays' in partial) out.domainCriticalDays = intSetting(partial.domainCriticalDays, 1, 365, 'Domain critical threshold');
   if ('dnsServers' in partial) out.dnsServers = dnsConfig.parseServers(partial.dnsServers);
   if ('theme' in partial) {
     if (!['dark', 'light'].includes(partial.theme)) throw new Error('Invalid theme');
@@ -172,39 +176,95 @@ function registerIpcHandlers(getMainWindow) {
     }
   };
   monitor.setBroadcaster(send);
+  alerts.setBroadcaster(send);
+  domains.setBroadcaster(send);
   telnet.init({ broadcast: send });
+
+  const startSession = () => {
+    monitor.startAll();
+    monitor.startRetentionJob();
+    domains.start();
+  };
 
   handle('auth:needsSetup', () => auth.needsSetup());
 
-  handle('auth:createFirstUser', async (_e, { username, password } = {}) => {
-    const user = await auth.createFirstUser(username, password);
+  handle('auth:createFirstUser', async (_e, { username, password, profile } = {}) => {
+    const user = await auth.createFirstUser(username, password, profile);
     currentUser = { username: user.username };
-    monitor.startAll();
-    monitor.startRetentionJob();
-    return currentUser;
+    startSession();
+    return user;
   });
 
   handle('auth:login', async (_e, { username, password } = {}) => {
     const user = await auth.login(username, password);
-    currentUser = user;
-    monitor.startAll();
-    monitor.startRetentionJob();
-    return currentUser;
+    currentUser = { username: user.username };
+    startSession();
+    return user;
   });
 
   handle('auth:logout', () => {
     if (currentUser) log.info(`User "${currentUser.username}" signed out`);
     currentUser = null;
     monitor.stopAll();
+    domains.stop();
     telnet.stopAll();
     return true;
   });
 
-  handle('auth:currentUser', () => currentUser);
+  handle('auth:currentUser', () => (currentUser ? auth.getProfile(currentUser.username) : null));
 
   handle('auth:changePassword', async (_e, { oldPassword, newPassword } = {}) => {
     requireAuth();
     return auth.changePassword(currentUser.username, oldPassword, newPassword);
+  });
+
+  handle('auth:updateProfile', (_e, patch) => {
+    requireAuth();
+    return auth.updateProfile(currentUser.username, patch);
+  });
+
+  // ---- alerts ----
+  handle('alerts:list', () => {
+    requireAuth();
+    return alerts.list();
+  });
+
+  handle('alerts:markRead', () => {
+    requireAuth();
+    return alerts.markRead();
+  });
+
+  handle('alerts:clear', () => {
+    requireAuth();
+    return alerts.clear();
+  });
+
+  // ---- domains (WHOIS / expiry) ----
+  handle('domains:list', () => {
+    requireAuth();
+    return domains.list();
+  });
+
+  handle('domains:lookup', (_e, target) => {
+    requireAuth();
+    telemetry.count('feature_whois');
+    return domains.lookup(String(target || '').slice(0, 300));
+  });
+
+  handle('domains:add', (_e, name) => {
+    requireAuth();
+    telemetry.count('feature_domain_watch');
+    return domains.add(String(name || '').slice(0, 300));
+  });
+
+  handle('domains:remove', (_e, id) => {
+    requireAuth();
+    return domains.remove(requireId(id));
+  });
+
+  handle('domains:check', (_e, id) => {
+    requireAuth();
+    return id === 'all' ? domains.checkAll() : domains.check(requireId(id));
   });
 
   // ---- hosts ----
@@ -237,6 +297,7 @@ function registerIpcHandlers(getMainWindow) {
     requireAuth();
     const deleted = config.deleteHost(requireId(id));
     monitor.reschedule(id);
+    alerts.forgetHost(id);
     db.deleteChecksForHost(id);
     return deleted;
   });

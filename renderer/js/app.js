@@ -3,9 +3,20 @@
   const PAGE_META = {
     dashboard: ['Dashboard', 'Live status of every monitored host'],
     hosts: ['Host / URLs', 'Add, edit, import and export monitored targets'],
-    settings: ['Settings', 'Monitoring, global DNS, data and account preferences'],
-    backup: ['Backup', 'Automatic local backups in the portable appdata folder'],
     telnet: ['Telnet', 'Telnet-style TCP console with persistent history logs'],
+    domains: ['Domain WHOIS', 'WHOIS / RDAP lookups and domain expiry tracking'],
+    backup: ['Backup', 'Automatic local backups in the portable appdata folder'],
+    settings: ['Settings', 'Profile, monitoring, global DNS, data and account preferences'],
+  };
+  const TELNET_MAX_CHARS = 200000;
+  const PROFILE_INPUTS = {
+    'profile-display-name': 'displayName',
+    'profile-email': 'email',
+    'profile-phone': 'phone',
+    'profile-job-title': 'jobTitle',
+    'profile-organization': 'organization',
+    'profile-department': 'department',
+    'profile-location': 'location',
   };
 
   const state = {
@@ -24,6 +35,13 @@
     search: '',
     statusFilter: 'all',
     renderQueued: false,
+    profile: null,
+    alerts: [],
+    alertsHtml: '',
+    pendingAlerts: [],
+    alertToastTimer: null,
+    domains: [],
+    whoisLast: null,
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -42,9 +60,11 @@
     ['view-loading', 'view-setup', 'view-login', 'view-app'].forEach((v) => {
       $(`#${v}`).classList.toggle('hidden', v !== id);
     });
-    const page = { 'view-setup': 'Setup', 'view-login': 'Sign in' }[id];
-    if (page !== undefined) $('#titlebar-page').textContent = page;
-    $('#titlebar-status').classList.toggle('hidden', id !== 'view-app');
+    // The page breadcrumb is only meaningful inside the app; sign-in/setup show just the app name.
+    const inApp = id === 'view-app';
+    $('.titlebar-sep').classList.toggle('hidden', !inApp);
+    $('#titlebar-page').classList.toggle('hidden', !inApp);
+    $('#titlebar-status').classList.toggle('hidden', !inApp);
   }
 
   window.addEventListener('blur', () => document.documentElement.classList.add('window-inactive'));
@@ -165,7 +185,10 @@
       return;
     }
     try {
-      await initApp(await window.api.createFirstUser(username, p1));
+      await initApp(await window.api.createFirstUser(username, p1, {
+        displayName: $('#setup-display-name').value,
+        email: $('#setup-email').value,
+      }));
     } catch (err) {
       errEl.textContent = errMsg(err);
     }
@@ -192,8 +215,7 @@
 
   // ---------------- MAIN APP INIT ----------------
   async function initApp(user) {
-    $('#current-username').textContent = user.username;
-    $('#user-avatar').textContent = user.username.slice(0, 1).toUpperCase();
+    setProfile(user);
     show('view-app');
     const firstInit = !state.uiWired;
     if (firstInit) {
@@ -202,6 +224,9 @@
       wireHosts();
       wireTransfer();
       wireSettings();
+      wireProfile();
+      wireAlerts();
+      wireDomains();
       wireBackup();
       wireTelemetry();
       wireModal();
@@ -214,7 +239,7 @@
     state.settings = await window.api.getSettings();
     if (state.settings.theme) applyTheme(state.settings.theme, false);
     fillSettingsForm(state.settings);
-    await Promise.all([refreshHosts(), refreshLatest(), refreshActivity(), refreshBackup(), refreshTelemetry(), loadAbout()]);
+    await Promise.all([refreshHosts(), refreshLatest(), refreshActivity(), refreshAlerts(), refreshDomains(), refreshBackup(), refreshTelemetry(), loadAbout()]);
     renderAll();
 
     state.unsubscribers.splice(0).forEach((off) => off());
@@ -231,20 +256,27 @@
         await refreshHosts();
         scheduleRender();
       }),
+      window.api.onAlert(onAlert),
+      window.api.onDomainsChanged(() => refreshDomains()),
       window.api.onTransferProgress(renderImportProgress),
       window.api.onBackupChanged(() => refreshBackup()),
     );
 
     if (firstInit) {
-      // Keeps relative times fresh and re-syncs in case a push was missed.
+      // Keeps relative times fresh and re-syncs in case a push was missed; idle while minimised/hidden.
       setInterval(async () => {
-        if (!state.unsubscribers.length) return;
+        if (!state.unsubscribers.length || document.hidden) return;
         await refreshLatest();
         scheduleRender();
       }, 30000);
       setInterval(() => {
-        if (state.unsubscribers.length) scheduleRender();
+        if (state.unsubscribers.length && !document.hidden) scheduleRender();
       }, 10000);
+      document.addEventListener('visibilitychange', async () => {
+        if (document.hidden || !state.unsubscribers.length) return;
+        await refreshLatest();
+        scheduleRender();
+      });
     }
   }
 
@@ -272,6 +304,7 @@
     $('#titlebar-page').textContent = title;
     if (tab === 'backup') refreshBackup();
     if (tab === 'settings') refreshTelemetry();
+    if (tab === 'domains') refreshDomains();
     if (tab === 'telnet') {
       refreshTelnetHosts();
       loadTelnetHistoryOnce();
@@ -313,6 +346,8 @@
     renderDashboard();
     renderHostsTable();
     renderActivity();
+    renderAlerts();
+    renderDomains();
     $('#nav-count-hosts').textContent = state.hosts.length;
   }
 
@@ -727,6 +762,8 @@
     $('#settings-interval').value = settings.defaultIntervalMinutes;
     $('#settings-ssl-warn').value = settings.sslWarnDays;
     $('#settings-ssl-critical').value = settings.sslCriticalDays;
+    $('#settings-domain-warn').value = settings.domainWarnDays ?? 30;
+    $('#settings-domain-critical').value = settings.domainCriticalDays ?? 7;
     $('#settings-dns').value = (settings.dnsServers || []).join(', ');
     markDnsPreset();
   }
@@ -751,9 +788,12 @@
           defaultIntervalMinutes: $('#settings-interval').value,
           sslWarnDays: $('#settings-ssl-warn').value,
           sslCriticalDays: $('#settings-ssl-critical').value,
+          domainWarnDays: $('#settings-domain-warn').value,
+          domainCriticalDays: $('#settings-domain-critical').value,
         });
         flash($('#settings-success'), 'Saved');
         renderDashboard();
+        renderDomains();
       } catch (err) {
         $('#settings-error').textContent = errMsg(err);
       }
@@ -787,8 +827,299 @@
         await window.api.changePassword($('#pw-current').value, $('#pw-new').value);
         $('#form-password').reset();
         flash($('#pw-success'), 'Password updated');
+        setProfile(await window.api.currentUser());
       } catch (err) {
         errEl.textContent = errMsg(err);
+      }
+    });
+  }
+
+  // ---------------- PROFILE ----------------
+  function initials(user) {
+    const parts = (user.displayName || user.username || '?').trim().split(/\s+/).filter(Boolean);
+    return (parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : (parts[0] || '?').slice(0, 1)).toUpperCase();
+  }
+
+  const fmtIso = (iso) => fmtTime(Date.parse(iso));
+
+  function setProfile(user) {
+    if (!user) return;
+    state.profile = user;
+    $('#current-username').textContent = user.displayName || user.username;
+    $('#current-user-sub').textContent = user.jobTitle || user.email || user.role || '';
+    $('#user-avatar').textContent = initials(user);
+    $('#profile-avatar').textContent = initials(user);
+    $('#profile-name').textContent = user.displayName || user.username;
+    $('#profile-sub').textContent = [`@${user.username}`, user.role, user.jobTitle, user.organization].filter(Boolean).join(' · ');
+    Object.entries(PROFILE_INPUTS).forEach(([id, key]) => {
+      const el = $(`#${id}`);
+      if (document.activeElement !== el) el.value = user[key] || '';
+    });
+    const fact = (k, v) => `<div class="detail-row"><span>${k}</span><span>${escapeHtml(v)}</span></div>`;
+    $('#profile-facts').innerHTML = [
+      fact('Username', user.username),
+      fact('Role', user.role || 'Administrator'),
+      fact('Account created', fmtIso(user.createdAt)),
+      fact('Current sign-in', fmtIso(user.lastLoginAt)),
+      fact('Previous sign-in', user.previousLoginAt ? fmtIso(user.previousLoginAt) : 'First sign-in'),
+      fact('Total sign-ins', String(user.loginCount || 0)),
+      fact('Password changed', user.passwordChangedAt ? fmtIso(user.passwordChangedAt) : 'Never'),
+      fact('Profile updated', user.profileUpdatedAt ? fmtIso(user.profileUpdatedAt) : 'Never'),
+    ].join('');
+  }
+
+  function wireProfile() {
+    $('#form-profile').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      $('#profile-error').textContent = '';
+      const patch = Object.fromEntries(Object.entries(PROFILE_INPUTS).map(([id, key]) => [key, $(`#${id}`).value]));
+      try {
+        setProfile(await window.api.updateProfile(patch));
+        flash($('#profile-success'), 'Profile saved');
+      } catch (err) {
+        $('#profile-error').textContent = errMsg(err);
+      }
+    });
+    $('#user-chip').addEventListener('click', () => {
+      setTab('settings');
+      $('#form-profile').scrollIntoView({ block: 'start' });
+    });
+  }
+
+  // ---------------- ALERTS ----------------
+  async function refreshAlerts() {
+    try {
+      state.alerts = await window.api.listAlerts();
+    } catch {
+      return;
+    }
+    renderAlerts();
+  }
+
+  function renderAlerts() {
+    const unread = state.alerts.filter((a) => !a.read).length;
+    $('#alert-unread').textContent = unread > 99 ? '99+' : String(unread);
+    $('#alert-unread').classList.toggle('hidden', !unread);
+    const ago = (ts) => (Date.now() - ts < 60000 ? 'now' : fmtDuration(Date.now() - ts));
+    const html = state.alerts.length
+      ? state.alerts.slice(0, 20).map((a) => `
+        <button type="button" class="alert-item sev-${escapeHtml(a.severity)}${a.read ? '' : ' unread'}" data-alert="${escapeHtml(a.id)}"
+          title="${escapeHtml(`${a.title}\n${a.message || ''}\n${fmtTime(a.ts)}`)}">
+          <span class="alert-text"><span class="alert-title">${escapeHtml(a.title)}</span><span class="alert-msg">${escapeHtml(a.message || '')}</span></span>
+          <span class="alert-time">${ago(a.ts)}</span>
+        </button>`).join('')
+      : '<div class="alert-empty">No alerts. Hosts going down or recovering, and expiring SSL certificates or domains, show up here.</div>';
+    if (html === state.alertsHtml) return;
+    state.alertsHtml = html;
+    $('#alert-list').innerHTML = html;
+  }
+
+  async function markAlertsRead() {
+    if (!state.alerts.some((a) => !a.read)) return;
+    try {
+      state.alerts = await window.api.markAlertsRead();
+    } catch {
+      return;
+    }
+    renderAlerts();
+  }
+
+  // Bursts (e.g. the network dropping) become a single toast instead of dozens.
+  function onAlert(alert) {
+    state.alerts = [alert, ...state.alerts.filter((a) => a.id !== alert.id)].slice(0, 50);
+    renderAlerts();
+    state.pendingAlerts.push(alert);
+    if (state.alertToastTimer) return;
+    state.alertToastTimer = setTimeout(() => {
+      state.alertToastTimer = null;
+      const list = state.pendingAlerts.splice(0);
+      if (!list.length) return;
+      const type = list.some((a) => a.severity === 'danger') ? 'error' : list.every((a) => a.severity === 'success') ? 'success' : 'info';
+      const first = list[0];
+      toast(list.length === 1 ? `${first.title}${first.message ? ` - ${first.message}` : ''}` : `${list.length} new alerts - latest: ${first.title}`, type, 8000);
+    }, 1500);
+  }
+
+  function wireAlerts() {
+    $('#alert-list').addEventListener('click', (e) => {
+      const item = e.target.closest('[data-alert]');
+      const alert = item && state.alerts.find((a) => a.id === item.dataset.alert);
+      if (!alert) return;
+      if (alert.hostId && state.hostsById.has(alert.hostId)) {
+        setTab('dashboard');
+        openHostDetail(alert.hostId);
+      } else if (alert.domainId) {
+        setTab('domains');
+      }
+      markAlertsRead();
+    });
+    $('#btn-alerts-read').addEventListener('click', markAlertsRead);
+    $('#btn-alerts-clear').addEventListener('click', async () => {
+      try {
+        state.alerts = await window.api.clearAlerts();
+        renderAlerts();
+      } catch (err) {
+        toast(errMsg(err), 'error');
+      }
+    });
+  }
+
+  // ---------------- DOMAINS (WHOIS / EXPIRY) ----------------
+  const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString() : '-');
+
+  function expiryBadge(daysLeft) {
+    if (daysLeft === null || daysLeft === undefined) return '<span class="badge badge-muted">Unknown</span>';
+    const warn = state.settings?.domainWarnDays ?? 30;
+    const crit = state.settings?.domainCriticalDays ?? 7;
+    if (daysLeft <= 0) return '<span class="badge badge-down">Expired</span>';
+    if (daysLeft <= crit) return `<span class="badge badge-down">${daysLeft}d left</span>`;
+    if (daysLeft <= warn) return `<span class="badge badge-warn">${daysLeft}d left</span>`;
+    return `<span class="badge badge-up">${daysLeft}d left</span>`;
+  }
+
+  async function refreshDomains() {
+    try {
+      state.domains = await window.api.listDomains();
+    } catch {
+      return;
+    }
+    renderDomains();
+  }
+
+  function domainStatusCell(d) {
+    if (d.checking) return '<span class="status checking"><span class="spinner-xs"></span>Checking…</span>';
+    if (d.error && !d.lastCheckedAt) return `<span class="badge badge-down" title="${escapeHtml(d.error)}">Lookup failed</span>`;
+    if (!d.lastCheckedAt) return '<span class="badge badge-muted">Pending</span>';
+    const stale = d.error ? ` <span class="tag" title="${escapeHtml(`Last attempt failed: ${d.error}`)}">stale</span>` : '';
+    return expiryBadge(d.daysLeft) + stale;
+  }
+
+  function renderDomains() {
+    $('#nav-count-domains').textContent = state.domains.length;
+    const q = state.search;
+    const rows = state.domains
+      .filter((d) => !q || [d.name, d.registrar].some((v) => (v || '').toLowerCase().includes(q)))
+      .map((d) => ({ key: d.id, html: `
+        <tr data-host="${escapeHtml(d.id)}">
+          <td><div class="cell-main">${escapeHtml(d.name)}</div>${d.registeredName && d.registeredName !== d.name ? `<div class="cell-sub mono">${escapeHtml(d.registeredName)}</div>` : ''}</td>
+          <td>${escapeHtml(d.registrar || '-')}</td>
+          <td class="nowrap">${fmtDate(d.createdAt)}</td>
+          <td class="nowrap">${fmtDate(d.expiresAt)}</td>
+          <td class="nowrap">${domainStatusCell(d)}</td>
+          <td class="nowrap" title="${escapeHtml(fmtIso(d.lastCheckedAt))}">${d.lastCheckedAt ? fmtAgo(Date.parse(d.lastCheckedAt)) : 'Never'}</td>
+          <td class="actions-cell">
+            <button class="icon-btn" data-action="check" title="Check now"${d.checking ? ' disabled' : ''}>${icon('refresh')}</button>
+            <button class="btn btn-ghost btn-sm" data-action="whois">${icon('globe')}WHOIS</button>
+            <button class="icon-btn danger" data-action="delete" title="Remove from watch list">${icon('trash')}</button>
+          </td>
+        </tr>`.trim() }));
+    patchRows($('#domains-tbody'), rows);
+    $('#domains-empty').classList.toggle('hidden', rows.length > 0);
+    $('#domains-empty p').textContent = state.domains.length
+      ? 'No domains match the current search.'
+      : 'No domains watched yet. Add one above to track its expiry date.';
+  }
+
+  async function addWatchedDomain(name, errEl) {
+    errEl.textContent = '';
+    try {
+      const created = await window.api.addDomain(name);
+      await refreshDomains();
+      toast(`Watching ${created.name} - checking expiry date…`, 'success');
+      return true;
+    } catch (err) {
+      errEl.textContent = errMsg(err);
+      return false;
+    }
+  }
+
+  async function runWhois(target) {
+    if (!target) return;
+    const errEl = $('#whois-error');
+    const out = $('#whois-results');
+    const btn = $('#whois-submit-btn');
+    $('#whois-target').value = target;
+    errEl.textContent = '';
+    out.innerHTML = '<div class="spinner spinner-small"></div>';
+    btn.disabled = true;
+    $('#whois-watch-btn').disabled = true;
+    try {
+      const res = await window.api.whoisLookup(target);
+      state.whoisLast = res;
+      out.innerHTML = renderWhois(res);
+      $('#whois-watch-btn').disabled = !res.found || state.domains.some((d) => d.name === res.domain);
+    } catch (err) {
+      out.innerHTML = '';
+      errEl.textContent = errMsg(err);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function renderWhois(res) {
+    const raw = res.raw
+      ? `<details class="dns-raw whois-raw"><summary>Raw WHOIS${res.whoisServer ? ` (${escapeHtml(res.whoisServer)})` : ''}</summary><pre>${escapeHtml(res.raw)}</pre></details>`
+      : '';
+    const errors = res.errors.length ? `<p class="muted-small">${escapeHtml(res.errors.join(' · '))}</p>` : '';
+    if (!res.found) {
+      return `<p class="muted">No registration data found for <strong>${escapeHtml(res.domain)}</strong>. It may be unregistered, or its registry
+        doesn't publish RDAP/WHOIS data.</p>${errors}${raw}`;
+    }
+    const item = (k, v) => `<div class="detail-item"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+    const dnssec = res.dnssec === null ? '-' : res.dnssec ? 'Signed' : 'Unsigned';
+    return `
+      <div class="detail-grid">
+        ${item('Domain', `<span class="mono">${escapeHtml(res.domain)}</span>`)}
+        ${item('Registrar', `${escapeHtml(res.registrar || '-')}${res.registrarIanaId ? ` <span class="muted-small">IANA ${escapeHtml(res.registrarIanaId)}</span>` : ''}`)}
+        ${item('Registered', escapeHtml(fmtDate(res.createdAt)))}
+        ${item('Expires', `${escapeHtml(fmtDate(res.expiresAt))} ${expiryBadge(res.daysLeft)}`)}
+        ${item('Last updated', escapeHtml(fmtDate(res.updatedAt)))}
+        ${item('Source / DNSSEC', `${escapeHtml(res.source || '-')} &middot; ${dnssec}`)}
+      </div>
+      ${res.nameservers.length ? `<div class="detail-row"><span>Name servers</span><span class="mono">${res.nameservers.map(escapeHtml).join('<br>')}</span></div>` : ''}
+      ${res.status.length ? `<div class="detail-row"><span>Status</span><span class="whois-status">${res.status.map((s) => `<span class="badge badge-muted">${escapeHtml(s)}</span>`).join('')}</span></div>` : ''}
+      <div class="detail-row"><span>Checked</span><span>${escapeHtml(fmtIso(res.checkedAt))}</span></div>
+      ${errors}${raw}`;
+  }
+
+  function wireDomains() {
+    $('#form-whois').addEventListener('submit', (e) => {
+      e.preventDefault();
+      runWhois($('#whois-target').value.trim());
+    });
+    $('#whois-watch-btn').addEventListener('click', async (e) => {
+      if (!state.whoisLast) return;
+      if (await addWatchedDomain(state.whoisLast.domain, $('#whois-error'))) e.currentTarget.disabled = true;
+    });
+    $('#form-domain-add').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (await addWatchedDomain($('#domain-add-name').value.trim(), $('#domain-add-error'))) $('#domain-add-name').value = '';
+    });
+    $('#btn-domains-check-all').addEventListener('click', async () => {
+      try {
+        const count = await window.api.checkDomain('all');
+        toast(count ? `Checking ${count} domain${count === 1 ? '' : 's'}` : 'No domains to check');
+      } catch (err) {
+        toast(errMsg(err), 'error');
+      }
+    });
+    $('#domains-tbody').addEventListener('click', async (e) => {
+      const tr = e.target.closest('tr[data-host]');
+      const action = e.target.closest('[data-action]')?.dataset.action;
+      const domain = tr && state.domains.find((d) => d.id === tr.dataset.host);
+      if (!domain || !action) return;
+      if (action === 'whois') {
+        runWhois(domain.name);
+        $('#whois-target').scrollIntoView({ block: 'center' });
+      } else if (action === 'check') {
+        window.api.checkDomain(domain.id).catch((err) => toast(`${domain.name}: ${errMsg(err)}`, 'error'));
+      } else if (action === 'delete' && confirm(`Stop watching "${domain.name}"?`)) {
+        try {
+          await window.api.removeDomain(domain.id);
+          await refreshDomains();
+        } catch (err) {
+          toast(errMsg(err), 'error');
+        }
       }
     });
   }
@@ -803,7 +1134,6 @@
 
   async function guarded(btn, fn) {
     if (btn) btn.disabled = true;
-    $('#cloud-error').textContent = '';
     try {
       return await fn();
     } catch (err) {
@@ -894,7 +1224,14 @@
     }
     $('#telemetry-enabled').checked = t.enabled;
     $('#telemetry-enabled').disabled = t.locked;
-    $('#telemetry-status').textContent = t.locked ? `Managed by your administrator (${t.lockedReason}).` : '';
+    const parts = [];
+    if (t.locked) parts.push(`Managed by your administrator (${t.lockedReason}).`);
+    if (t.enabled) {
+      parts.push(`Auto-submitted every ${t.intervalMinutes} minutes.`);
+      if (t.lastSentAt) parts.push(`Last sent ${fmtTime(Date.parse(t.lastSentAt))}.`);
+      if (t.lastResult && /failed/i.test(t.lastResult)) parts.push(t.lastResult);
+    }
+    $('#telemetry-status').textContent = parts.join(' ');
   }
 
   function wireTelemetry() {
@@ -1179,7 +1516,9 @@
 
   function appendTelnet(line) {
     const out = $('#telnet-output');
-    out.textContent += (out.textContent ? '\n' : '') + line;
+    const text = out.textContent + (out.textContent ? '\n' : '') + line;
+    // Bounded so a long-running session doesn't grow the DOM (and memory) without limit.
+    out.textContent = text.length > TELNET_MAX_CHARS ? text.slice(-TELNET_MAX_CHARS) : text;
     out.scrollTop = out.scrollHeight;
   }
 
@@ -1197,7 +1536,7 @@
       const text = await window.api.telnetHistory();
       if (text) {
         const out = $('#telnet-output');
-        out.textContent = text.replace(/\n$/, '');
+        out.textContent = text.replace(/\n$/, '').slice(-TELNET_MAX_CHARS);
         out.scrollTop = out.scrollHeight;
       }
     } catch {
