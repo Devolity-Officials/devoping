@@ -1,4 +1,4 @@
-// Local backup manager (portable): every backup lives in <app-home>/appdata/backup.
+// Local backup manager (portable): every backup lives in <app-home>/devoping_data/backup.
 //  - automatic configuration snapshots after each real config change,
 //  - manual full backups (config + optional check history), optionally AES-256 encrypted,
 //  - restore from any local backup (a safety snapshot is always taken first).

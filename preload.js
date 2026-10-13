@@ -93,6 +93,7 @@ contextBridge.exposeInMainWorld('api', {
   onBackupChanged: (callback) => subscribe('backup:changed', callback),
   onAlert: (callback) => subscribe('alerts:new', callback),
   onDomainsChanged: (callback) => subscribe('domains:changed', callback),
+  onConfigReloaded: (callback) => subscribe('config:reloaded', callback),
 });
 
 function subscribe(channel, callback) {

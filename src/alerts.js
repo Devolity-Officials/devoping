@@ -1,5 +1,5 @@
 // Recent alerts (host down/recovered, SSL and domain expiry) shown in the sidebar.
-// Persisted to appdata/alerts.json so the latest alerts survive a restart.
+// Persisted to devoping_data/alerts.json so the latest alerts survive a restart.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');

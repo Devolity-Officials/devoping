@@ -1,4 +1,4 @@
-// Small rotating file logger (appdata/logs/devoping.log, 2 MB x 3 files). Never log secrets.
+// Small rotating file logger (devoping_data/logs/devoping.log, 2 MB x 3 files). Never log secrets.
 const fs = require('fs');
 const path = require('path');
 const util = require('util');

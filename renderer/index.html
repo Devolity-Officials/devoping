@@ -440,7 +440,10 @@
                 <button type="button" class="btn btn-ghost" data-export="history-csv"><svg class="icon"><use href="#i-download" /></svg>Check history CSV</button>
                 <button type="button" class="btn btn-ghost" id="btn-open-data"><svg class="icon"><use href="#i-database" /></svg>Open data folder</button>
               </div>
-              <p class="muted-small">Application data, settings, history, credentials and logs are stored in the portable <code>appdata</code> folder (<code>logs/devoping.log</code>).</p>
+              <p class="muted-small">All data is stored in the portable <code>devoping_data</code> folder next to the app
+                (<code>config.json</code>, <code>monitoring.db</code>, <code>alerts.json</code>, <code>telnet-history.log</code>,
+                <code>backup/</code>, <code>logs/</code>, <code>session/</code>). Copy <code>config.json</code> to another PC to move all hosts,
+                domains, users, profiles and settings; it is picked up automatically, even while the app is running.</p>
             </div>
 
             <div class="card settings-card">

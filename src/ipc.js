@@ -186,6 +186,24 @@ function registerIpcHandlers(getMainWindow) {
     domains.start();
   };
 
+  // config.json replaced on disk (e.g. copied from another PC): apply it without a restart.
+  config.onReload(() => {
+    if (!currentUser) {
+      send('config:reloaded', { signedIn: false });
+      return;
+    }
+    monitor.stopAll();
+    domains.stop();
+    if (config.findUser(currentUser.username)) {
+      startSession();
+    } else {
+      log.info(`User "${currentUser.username}" no longer exists in the reloaded config.json; signed out`);
+      currentUser = null;
+      telnet.stopAll();
+    }
+    send('config:reloaded', { signedIn: Boolean(currentUser) });
+  });
+
   handle('auth:needsSetup', () => auth.needsSetup());
 
   handle('auth:createFirstUser', async (_e, { username, password, profile } = {}) => {

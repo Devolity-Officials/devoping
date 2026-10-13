@@ -8,14 +8,14 @@
 // - Only aggregate counters and coarse environment info are sent: never hostnames, URLs, IPs,
 //   usernames, error messages or file paths (enforced by sanitizeProps below).
 // - The install ID is random (not derived from hardware) and is discarded when telemetry is disabled.
-// - Events are queued in appdata/telemetry-queue.json and POSTed over HTTPS in batches.
+// - Events are queued in devoping_data/session/telemetry-queue.json and POSTed over HTTPS in batches.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const config = require('./config');
 const log = require('./logger');
-const { getDataDir, getInstallDir } = require('./paths');
+const { getSessionDir, getInstallDir } = require('./paths');
 const { writeFileAtomic } = require('./fsutil');
 
 const SCHEMA = 1;
@@ -115,7 +115,7 @@ function count(name, by = 1) {
 }
 
 function queuePath() {
-  return path.join(getDataDir(), 'telemetry-queue.json');
+  return path.join(getSessionDir(), 'telemetry-queue.json');
 }
 
 function readQueue() {

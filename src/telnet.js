@@ -1,5 +1,5 @@
 // Interactive telnet-style TCP console. Opens raw sockets to a host/port, streams data to the
-// renderer, and appends every line to a persistent history log in the portable appdata folder.
+// renderer, and appends every line to a persistent history log in the portable devoping_data folder.
 const net = require('net');
 const fs = require('fs');
 const path = require('path');

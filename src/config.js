@@ -2,9 +2,11 @@
 // Historical check results live in the SQLite (sql.js) database instead - see db.js.
 const fs = require('fs');
 const crypto = require('crypto');
-const { getConfigPath } = require('./paths');
+const { getConfigPath, getConfigBackupPath } = require('./paths');
 const { writeFileAtomic, quarantine } = require('./fsutil');
 const log = require('./logger');
+
+const WATCH_INTERVAL_MS = 3000;
 
 const DEFAULT_CONFIG = {
   settings: {
@@ -22,17 +24,89 @@ const DEFAULT_CONFIG = {
 };
 
 let cache = null;
+let lastSig = null; // mtime/size of config.json as last read or written by the app
+let watching = false;
 const saveListeners = [];
+const reloadListeners = [];
+
+// Entries without an id (hand-written or older files) get a stable one derived from their content.
+function withId(item, i, prefix) {
+  if (typeof item.id === 'string' && item.id) return item;
+  if (item.id !== undefined && item.id !== null && item.id !== '') return { ...item, id: String(item.id) };
+  const hash = crypto.createHash('sha1').update(JSON.stringify([i, item.name, item.url, item.ip])).digest('hex');
+  return { ...item, id: `${prefix}-${hash.slice(0, 32)}` };
+}
+
+const list = (value) => (Array.isArray(value) ? value : []);
 
 function parseConfig(raw) {
-  const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  // Windows editors often save JSON with a UTF-8 BOM, which JSON.parse rejects.
+  let parsed = typeof raw === 'string' ? JSON.parse(raw.replace(/^\uFEFF/, '')) : raw;
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not a JSON object');
+  // A backup snapshot (devoping-config-*.json) copied in as config.json is accepted as well.
+  if (!parsed.users && parsed.config && typeof parsed.config === 'object') parsed = parsed.config;
   return {
     settings: { ...DEFAULT_CONFIG.settings, ...(parsed.settings || {}) },
-    hosts: Array.isArray(parsed.hosts) ? parsed.hosts.filter((h) => h && typeof h.id === 'string') : [],
-    domains: Array.isArray(parsed.domains) ? parsed.domains.filter((d) => d && typeof d.id === 'string' && typeof d.name === 'string') : [],
-    users: Array.isArray(parsed.users) ? parsed.users.filter((u) => u && u.username && u.passwordHash) : [],
+    hosts: list(parsed.hosts)
+      .filter((h) => h && typeof h === 'object' && (h.url || h.ip))
+      .map((h, i) => ({ ...withId(h, i, 'h'), name: h.name || h.url || h.ip, enabled: h.enabled !== false })),
+    domains: list(parsed.domains)
+      .filter((d) => d && typeof d.name === 'string' && d.name)
+      .map((d, i) => withId(d, i, 'd')),
+    users: list(parsed.users).filter((u) => u && typeof u.username === 'string' && u.username && typeof u.passwordHash === 'string'),
   };
+}
+
+function fileSig(filePath) {
+  try {
+    const st = fs.statSync(filePath);
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return null;
+  }
+}
+
+// Picks up a config.json that was copied in or edited while the app is running.
+function watch() {
+  if (watching) return;
+  watching = true;
+  fs.watchFile(getConfigPath(), { interval: WATCH_INTERVAL_MS, persistent: false }, () => reloadFromDisk());
+}
+
+// `beforeSave`: the app is about to write, so an unreadable file is moved aside instead of overwritten.
+function reloadFromDisk({ beforeSave = false } = {}) {
+  const filePath = getConfigPath();
+  const sig = fileSig(filePath);
+  if (!sig || sig === lastSig) return false;
+  lastSig = sig;
+  let next;
+  try {
+    next = parseConfig(fs.readFileSync(filePath, 'utf8'));
+  } catch (err) {
+    log.warn(`config.json changed on disk but can't be read (${err.message}); keeping the current configuration`);
+    if (beforeSave) log.warn(`Unreadable config.json moved to ${quarantine(filePath)}`);
+    return false;
+  }
+  if (!next.users.length) {
+    log.warn('config.json changed on disk but contains no user accounts; keeping the current configuration');
+    if (beforeSave) log.warn(`config.json without users moved to ${quarantine(filePath)}`);
+    return false;
+  }
+  cache = next;
+  try {
+    fs.copyFileSync(filePath, getConfigBackupPath());
+  } catch (err) {
+    log.warn(`Could not update config.json.bak: ${err.message}`);
+  }
+  log.info(`config.json replaced on disk - reloaded ${cache.hosts.length} hosts, ${cache.domains.length} domains, ${cache.users.length} users`);
+  for (const fn of [...saveListeners, ...reloadListeners]) {
+    try {
+      fn(cache);
+    } catch (err) {
+      log.error(`Config reload listener failed: ${err.message}`);
+    }
+  }
+  return true;
 }
 
 // Loads config.json; if it is damaged, restores the last-known-good backup (config.json.bak).
@@ -40,7 +114,8 @@ function parseConfig(raw) {
 function load() {
   if (cache) return cache;
   const filePath = getConfigPath();
-  const backupPath = `${filePath}.bak`;
+  const backupPath = getConfigBackupPath();
+  watch();
   if (!fs.existsSync(filePath) && !fs.existsSync(backupPath)) {
     cache = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
     save();
@@ -48,7 +123,9 @@ function load() {
   }
   try {
     cache = parseConfig(fs.readFileSync(filePath, 'utf8'));
+    lastSig = fileSig(filePath);
     fs.copyFileSync(filePath, backupPath);
+    log.info(`Loaded ${filePath}: ${cache.hosts.length} hosts, ${cache.domains.length} domains, ${cache.users.length} users`);
     return cache;
   } catch (err) {
     log.error(`Config file ${filePath} is unreadable: ${err.message}`);
@@ -66,7 +143,10 @@ function load() {
 }
 
 function save() {
+  // A config.json copied in since the last read wins over in-memory changes (never overwrite it).
+  if (lastSig && fileSig(getConfigPath()) !== lastSig && reloadFromDisk({ beforeSave: true })) return;
   writeFileAtomic(getConfigPath(), JSON.stringify(cache, null, 2));
+  lastSig = fileSig(getConfigPath());
   for (const fn of saveListeners) {
     try {
       fn(cache);
@@ -79,6 +159,11 @@ function save() {
 // Called after every successful save (used by the automatic local backup).
 function onSave(fn) {
   saveListeners.push(fn);
+}
+
+// Called when config.json was replaced on disk and reloaded.
+function onReload(fn) {
+  reloadListeners.push(fn);
 }
 
 // Deep copy of the whole configuration (settings, hosts, users) for backups.
@@ -245,6 +330,7 @@ function updateUser(username, partial) {
 module.exports = {
   load,
   onSave,
+  onReload,
   snapshot,
   replaceAll,
   getSettings,

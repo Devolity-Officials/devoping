@@ -5,7 +5,7 @@
     hosts: ['Host / URLs', 'Add, edit, import and export monitored targets'],
     telnet: ['Telnet', 'Telnet-style TCP console with persistent history logs'],
     domains: ['Domain WHOIS', 'WHOIS / RDAP lookups and domain expiry tracking'],
-    backup: ['Backup', 'Automatic local backups in the portable appdata folder'],
+    backup: ['Backup', 'Automatic local backups in the portable devoping_data folder'],
     settings: ['Settings', 'Profile, monitoring, global DNS, data and account preferences'],
   };
   const TELNET_MAX_CHARS = 200000;
@@ -48,7 +48,7 @@
   const $all = (sel) => Array.from(document.querySelectorAll(sel));
   const icon = (name, cls = 'icon') => `<svg class="${cls}"><use href="#i-${name}"/></svg>`;
 
-  // Unexpected UI errors go to appdata/logs/devoping.log (capped to avoid log floods).
+  // Unexpected UI errors go to devoping_data/logs/devoping.log (capped to avoid log floods).
   let reportedErrors = 0;
   function reportError(message) {
     if (reportedErrors++ < 20) window.api.logError(message).catch(() => {});
@@ -1677,9 +1677,29 @@
       ${rawHtml}`;
   }
 
+  // config.json was replaced on disk (e.g. copied from another PC) and reloaded by the main process.
+  window.api.onConfigReloaded(async ({ signedIn } = {}) => {
+    try {
+      if (!signedIn) {
+        state.unsubscribers.splice(0).forEach((off) => off());
+        await bootstrap();
+      } else {
+        state.settings = await window.api.getSettings();
+        if (state.settings.theme) applyTheme(state.settings.theme, false);
+        fillSettingsForm(state.settings);
+        setProfile(await window.api.currentUser());
+        await Promise.all([refreshHosts(), refreshLatest(), refreshDomains()]);
+        renderAll();
+      }
+      toast('Configuration reloaded from config.json', 'success', 6000);
+    } catch (err) {
+      reportError(`Config reload failed: ${err.stack || err}`);
+    }
+  });
+
   bootstrap().catch((err) => {
     reportError(`Startup failed: ${err.stack || err}`);
     $('#view-loading').innerHTML = `<div class="auth-card"><h1>Something went wrong</h1>
-      <p class="muted">${escapeHtml(errMsg(err))}</p><p class="muted-small">Details were written to appdata/logs/devoping.log.</p></div>`;
+      <p class="muted">${escapeHtml(errMsg(err))}</p><p class="muted-small">Details were written to devoping_data/logs/devoping.log.</p></div>`;
   });
 })();

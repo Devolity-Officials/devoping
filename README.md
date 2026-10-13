@@ -1,8 +1,8 @@
 # Devoping
 
 **Devoping** is a portable Windows desktop app for monitoring websites, service URLs, IP addresses, SSL
-certificates and DNS records, with a live dashboard, automatic local backups and optional cloud
-backup/sync to Amazon S3, Google Drive or OneDrive.
+certificates, DNS records and domain expiry dates, with a live dashboard, a sidebar alert feed,
+automatic local backups and optional cloud backup/sync to Amazon S3, Google Drive or OneDrive.
 
 Website: <https://devolity.com>
 
@@ -38,12 +38,18 @@ Website: <https://devolity.com>
 | **Port monitoring** | Any TCP ports per host (up to 32): numbers (`443`, `8080`), service names (`ssh`, `ftp`, `rdp`, `smtp`, `mysql`, ...), or custom labels (`9000:minio`). Quick-add presets in the host form. Checked against the IP, or the URL's hostname if there is no IP. Records connect latency and, for greeting protocols (FTP, SSH, Telnet, SMTP, POP3, IMAP, VNC), the server banner (e.g. `SSH-2.0-OpenSSH_9.6`). No data is ever sent to the port. |
 | **Auto IP** | Hosts with only a URL get their IPv4 resolved and pinged; the IP is refreshed on every check. |
 | **DNS tools** | A, AAAA, CNAME, MX, TXT, CAA, NS, SOA, DMARC and PTR lookups via system, global, Google, Cloudflare or Quad9 resolvers; OS resolver + `hosts` file view; raw `dig`/`host`/`nslookup` output. |
+| **Domain WHOIS** | WHOIS / RDAP lookup for any domain or URL: registrar (and IANA ID), registration, expiry and last-updated dates, days left, name servers, EPP status codes, DNSSEC and the raw WHOIS text. Subdomains are walked up to the registered domain (`www.example.co.uk` -> `example.co.uk`). |
+| **Domain expiry watch list** | Add domains to track their expiry date. Each one is re-checked automatically once a day (failed lookups are retried after 1 hour) or on demand. Warning/critical thresholds (default 30 / 7 days) are set in Settings and raise alerts; a renewal raises a "renewed" alert. |
+| **Alerts** | Sidebar feed below **Monitoring** with the latest alerts and an unread counter: host down / failing checks, host recovered, SSL certificate expiring or expired, domain expiring, expired or renewed. Bursts of alerts are grouped into one notification. Click an alert to open the host details (or the Domain page); mark all as read or clear. Kept across restarts. |
+| **User profile** | Full name, email, phone, job title, organization, department and location, plus account facts: role, account created, current and previous sign-in, total sign-ins, password and profile last changed. Open it from **Settings > Profile** or by clicking the user in the sidebar. |
 | **Global DNS** | Optional resolvers (Settings) used for checks and IP resolution, with fallback to the system resolver. |
 | **Import / export** | Hosts from JSON, CSV or a plain list (one URL/IP per line); export hosts (JSON/CSV) and check history (CSV). |
 | **Progress** | Live check progress in the title bar, the sidebar and per row; import progress. |
-| **Backup & Sync** | Automatic configuration backups to `<app-home>/appdata/backup`; full backups (config + history) locally or to S3 / Google Drive / OneDrive, scheduled with retention; optional AES-256 encryption; restore from any backup. |
-| **Telemetry** | Anonymous usage counters sent to Grafana Cloud (on by default; users can switch it off, administrators can force it off). |
-| **UI** | Custom title bar with native Windows controls, dark/light themes, sidebar navigation. |
+| **Backup & Sync** | Automatic configuration backups to `<app-home>/devoping_data/backup`; full backups (config + history) locally or to S3 / Google Drive / OneDrive, scheduled with retention; optional AES-256 encryption; restore from any backup. |
+| **Portable data** | Everything lives in `devoping_data` next to the exe. Copy `config.json` to another PC to carry all hosts, URLs, IPs, ports, domain watch list, users, profiles and settings; it is picked up at start, or within seconds while the app is running. |
+| **Telemetry** | Anonymous usage counters sent to Grafana Cloud, auto-submitted every 15 minutes (on by default; users can switch it off, administrators can force it off). |
+| **UI** | Custom title bar with native Windows controls, dark/light themes, sidebar navigation: **Dashboard, Host / URLs, Telnet, Domain WHOIS, Backup, Settings**. |
+| **Performance** | Low memory footprint: hardware acceleration and Chromium's spare renderer are off, V8 runs in optimise-for-size mode, compiled scripts are cached, DB writes are batched, and the UI stops refreshing while minimised. |
 | **Security** | Local accounts (bcrypt, lockout), sandboxed renderer, strict CSP, Electron fuses, DPAPI-encrypted credentials. |
 
 ---
@@ -68,7 +74,7 @@ npm start
 
 `npm install` also runs `scripts/copy-assets.js`, which copies Chart.js into `renderer/js/`.
 
-On first launch, create the administrator account. Runtime state is stored in `./appdata` in
+On first launch, create the administrator account. Runtime state is stored in `./devoping_data` in
 development and beside the portable executable in a packaged build. The folder is git-ignored.
 
 To produce the standalone `Devoping-Portable.exe`, run `npm run dist:portable`. See
@@ -162,11 +168,13 @@ Get-FileHash dist\Devoping-Portable.exe -Algorithm SHA256
 
 - Copy `Devoping-Portable.exe` into any folder the user can write to (e.g. `D:\Tools\Devoping\`)
   and double-click it.
-- On first run it creates `data\` and `backup\` **next to the exe**. To move the installation,
-  move the whole folder, exe included.
+- On first run it creates `devoping_data\` **next to the exe**. To move the installation,
+  move the whole folder, exe included. To move only the configuration, copy
+  `devoping_data\config.json` (see [section 5](#5-data-files-and-formats)).
 - The first launch of a new build can take about 15 s while antivirus scans it; later launches
   are faster.
-- To upgrade, replace the exe and keep the `data\` and `backup\` folders.
+- To upgrade, replace the exe and keep the `devoping_data\` folder. Data from older versions
+  (`appdata\`, `data\`, `backup\`) is copied into `devoping_data\` automatically on first start.
 
 ### 3.2 Build options
 
@@ -255,6 +263,8 @@ flowchart LR
     MON["src/monitor.js<br/>scheduler + queue"]
     CHK["src/checks.js<br/>HTTP/SSL/ping"]
     DNS["src/dns-tools.js<br/>src/dns-config.js"]
+    DOM["src/domains.js<br/>WHOIS/RDAP + watch list"]
+    ALR["src/alerts.js<br/>alerts.json"]
     CFG["src/config.js<br/>config.json"]
     DB["src/db.js<br/>monitoring.db (sql.js)"]
     BK["src/backup/*<br/>local + cloud plugins"]
@@ -265,6 +275,8 @@ flowchart LR
   UI <--> API <--> IPC
   IPC --> MON --> CHK
   IPC --> DNS
+  IPC --> DOM --> ALR
+  MON --> ALR
   MON --> DB
   IPC --> CFG
   IPC --> BK --> SEC
@@ -272,21 +284,25 @@ flowchart LR
   BK --> DB
   MON --> TEL
   CHK -->|"HTTPS / ICMP"| Internet((Monitored hosts))
+  DOM -->|"RDAP over HTTPS / WHOIS TCP 43"| Registries((Domain registries))
   BK -->|"HTTPS"| Cloud((S3 / Drive / OneDrive))
   TEL -->|"HTTPS"| Collector((Your telemetry server))
 ```
 
 ### Startup sequence (`main.js`)
 
-1. Single-instance lock (a second copy exits and focuses the first).
+1. Single-instance lock (a second copy exits and focuses the first). Low-memory switches are
+   applied (hardware acceleration off, no spare renderer, `--optimize-for-size`).
 2. Global error handlers, web-contents hardening (no navigation, pop-ups or webviews).
 3. `app.whenReady`: init logger, deny all permission requests, remove the app menu.
-4. Load `config.json` (with backup recovery), open `monitoring.db` (with corruption recovery).
+4. Load `config.json` (with backup recovery), open `monitoring.db` (with corruption recovery),
+   and seed the alert state from the latest check results (so a restart doesn't re-alert).
 5. Register IPC handlers, init the **backup manager** (startup snapshot, save hook, cloud
    scheduler) and **telemetry** (if enabled).
 6. Create the window (custom title bar + native control overlay), then load `renderer/index.html`.
-7. After the user signs in, `monitor.startAll()` schedules every enabled host.
-8. On quit: stop the monitor, flush pending backups/telemetry, flush the database.
+7. After the user signs in, `monitor.startAll()` schedules every enabled host and
+   `domains.start()` schedules the daily domain expiry checks.
+8. On quit: stop the monitor and domain checks, save alerts, flush pending backups/telemetry, flush the database.
 
 ### Monitoring pipeline
 
@@ -294,32 +310,67 @@ flowchart LR
 setInterval per host --> enqueue(hostId) --> queue --> pump (max 8 running)
    --> runHostChecks: [dns] resolveHostIp --> [http] checkHttp --> [ping] checkPing (TCP fallback) --> [ports] checkTcp (parallel)
    --> db.insertCheck --> broadcast 'monitor:result' --> renderer updates the row
+   --> alerts.recordHostResults (one alert per host on down / recovered / SSL threshold) --> 'alerts:new'
    (activity snapshots 'monitor:activity' drive the progress UI; 90 s watchdog per job)
+```
+
+### Domain expiry pipeline
+
+```
+hourly sweep (first one 60 s after sign-in) --> domains not checked in 24 h (failed: retry after 1 h)
+   --> lookup: RDAP (rdap.org bootstrap, HTTPS-only redirects) + WHOIS (IANA referral -> registry -> registrar), in parallel
+   --> save registrar / dates / status to config.json --> alert when the expiry level gets worse (or on renewal)
+   --> broadcast 'domains:changed' --> renderer refreshes the watch list
 ```
 
 ---
 
 ## 5. Data, files and formats
 
-`<app-home>` is the folder containing the portable exe or the project folder (development).
-All Electron user data and application files are kept in `appdata/`; legacy `data/`, `backup/`
-and DevoWatch roaming-profile files are copied there on first launch without overwriting files.
+`<app-home>` is the folder containing the portable exe (e.g. `dist\`) or the project folder
+(development). All data is kept in `<app-home>/devoping_data/`. On first launch, files from older
+layouts (`appdata/`, `data/`, `backup/` and the `%APPDATA%\Devoping` / DevoWatch roaming folders)
+are copied into it without overwriting anything; files from an old `appdata/` dropped into the top
+level (`config.json.bak`, `secrets.json`, `telemetry-queue.json`) are moved to their subfolder.
 
 ```
 <app-home>/
   Devoping-Portable.exe        (or Devoping.exe from the ZIP)
   policy.json                   optional, administrator policy (see section 9)
-  appdata/
-    config.json                 settings, hosts, users (bcrypt hashes)
-    config.json.bak             last known-good config (auto)
+  devoping_data/
+    config.json                 settings, hosts, domain watch list, users (bcrypt hashes + profile)
     monitoring.db               SQLite check history (sql.js)
-    secrets.json                DPAPI-encrypted credentials (cloud keys/tokens, passphrase)
-    telemetry-queue.json        pending telemetry events (only when enabled)
-    logs/devoping.log           rotating log (2 MB x 3)
+    alerts.json                 latest 50 alerts shown in the sidebar
+    telnet-history.log          Telnet console history (2 MB cap)
     backup/
+      config.json.bak                            last known-good config (auto)
       devoping-config-YYYYMMDD-HHMMSS.json       automatic config snapshots
       devoping-backup-YYYYMMDD-HHMMSS.json.gz    manual full backups (.enc when encrypted)
+    logs/
+      devoping.log              rotating log (2 MB x 3)
+    session/                    Electron/Chromium data and machine-bound files:
+      secrets.json              DPAPI-encrypted credentials (cloud keys/tokens, passphrase)
+      telemetry-queue.json      pending telemetry events (only when enabled)
 ```
+
+### Moving the configuration to another PC
+
+`config.json` holds everything you configure: hosts (URLs, IPs, ports, HTTP options, intervals),
+the domain watch list, user accounts with their profiles, and all settings. To move it:
+
+1. Copy `devoping_data\config.json` from the old PC into `devoping_data\` next to the exe on the
+   new PC (start the exe once first if the folder doesn't exist yet).
+2. It is picked up on the next start, or automatically within about 3 seconds if the app is
+   running (monitoring restarts and the UI refreshes; if your signed-in user isn't in the copied
+   file, you are returned to the sign-in screen). A copied file is never overwritten by the app.
+3. Sign in with the accounts from the old PC.
+
+Accepted: files saved with a UTF-8 BOM (e.g. by Notepad), configs from older versions (hosts or
+domains without IDs get stable IDs), and automatic snapshots from `backup\` (`devoping-config-*.json`)
+renamed to `config.json`. A copied file that can't be read or has no user accounts is ignored and
+logged in `logs\devoping.log`. Check history (`monitoring.db`), alerts and Telnet history can be
+copied the same way (with the app closed). Cloud credentials in `session\secrets.json` are tied to
+the Windows user and can't be moved; sign in to the cloud provider again.
 
 ### `config.json`
 
@@ -327,6 +378,7 @@ and DevoWatch roaming-profile files are copied there on first launch without ove
 {
   "settings": {
     "retentionDays": 7, "defaultIntervalMinutes": 5, "sslWarnDays": 30, "sslCriticalDays": 7,
+    "domainWarnDays": 30, "domainCriticalDays": 7,
     "dnsServers": ["1.1.1.1"],
     "backup": { "localEnabled": true, "localKeep": 30, "cloudProvider": "s3", "cloudEnabled": true,
                 "cloudIntervalHours": 24, "cloudKeep": 14, "includeHistory": true,
@@ -338,8 +390,29 @@ and DevoWatch roaming-profile files are copied there on first launch without ove
               "ports": [{ "port": 443, "service": "https" }, { "port": 22, "service": "ssh" },
                         { "port": 9000, "service": "minio", "custom": true }],
               "pingPort": null }],
-  "users": [{ "username": "admin", "passwordHash": "$2a$10$...", "createdAt": "..." }]
+  "domains": [{ "id": "uuid", "name": "example.com", "addedAt": "...",
+                "registrar": "Example Registrar, Inc.", "createdAt": "...", "expiresAt": "2027-08-13T04:00:00.000Z",
+                "status": ["client transfer prohibited"], "nameservers": ["a.iana-servers.net"],
+                "source": "RDAP", "alertLevel": "ok", "lastCheckedAt": "...", "lastAttemptAt": "...", "error": null }],
+  "users": [{ "username": "admin", "passwordHash": "$2a$10$...", "role": "Administrator",
+              "displayName": "Jane Doe", "email": "jane@example.com", "phone": "+1 555 0100",
+              "jobTitle": "SRE", "organization": "Example Ltd", "department": "IT", "location": "London",
+              "createdAt": "...", "lastLoginAt": "...", "previousLoginAt": "...", "loginCount": 12,
+              "passwordChangedAt": "...", "profileUpdatedAt": "..." }]
 }
+```
+
+`alertLevel` is one of `ok`, `warning`, `critical`, `expired`; it is stored so a restart doesn't
+repeat a domain alert. Profile fields are optional and validated (email format, phone characters,
+max lengths). The password hash is never sent to the renderer.
+
+### `alerts.json`
+
+Newest first, at most 50 entries:
+
+```json
+[{ "id": "uuid", "ts": 1790000000000, "severity": "danger|warning|success", "title": "GitHub is down",
+   "message": "HTTP: timeout · Ping: no reply", "hostId": "uuid|null", "domainId": "uuid|null", "read": false }]
 ```
 
 Secrets (S3 secret key, OAuth client secret/refresh tokens, backup passphrase) are **never**
@@ -392,17 +465,19 @@ may be separated by `;`, `,` or spaces (quote the cell if it contains commas).
 | `main.js` | App lifecycle, single instance, hardening, window (title bar overlay), crash recovery, shutdown |
 | `preload.js` | `window.api` bridge: the only surface the UI can call |
 | `src/ipc.js` | All IPC handlers; sender verification, auth gate, input validation, logging |
-| `src/paths.js` | Portable `<app-home>/appdata` resolution and non-destructive legacy data migration |
-| `src/config.js` | JSON store (atomic writes, `.bak` recovery, save hooks, snapshot/replace) |
+| `src/paths.js` | Portable `<app-home>/devoping_data` layout (backup/, logs/, session/) and non-destructive legacy data migration |
+| `src/config.js` | JSON store (atomic writes, `.bak` recovery, tolerant parsing, hot reload when `config.json` is replaced on disk, save hooks, snapshot/replace) |
 | `src/db.js` | sql.js database, batched atomic flushes, corruption quarantine, export/replace |
 | `src/fsutil.js` | `writeFileAtomic`, `quarantine` |
 | `src/logger.js` | Rotating file logger |
-| `src/auth.js` | bcrypt login, lockout, password change |
+| `src/auth.js` | bcrypt login, lockout, password change, user profile (validation, sign-in history) |
 | `src/checks.js` | `checkHttp` (hard deadline, TLS info), `checkPing` (argument validation), `checkTcp` (connect + passive banner read), `resolveHostIp` |
 | `src/ports.js` | Known service names, port list parsing/validation and formatting |
 | `src/monitor.js` | Scheduler, bounded queue, watchdog, activity/progress broadcasts |
 | `src/dns-config.js` | Global DNS servers, drop-in `lookup()` with system fallback |
 | `src/dns-tools.js` | DNS record lookups, hosts file, raw `dig`/`host`/`nslookup` |
+| `src/domains.js` | WHOIS (TCP 43) and RDAP lookups, domain expiry watch list, daily checks, expiry alerts |
+| `src/alerts.js` | Alert feed: down/recovered and SSL transitions per host, persisted to `alerts.json`, broadcast to the UI |
 | `src/transfer.js` | Import parsing/validation (JSON/CSV/TXT), CSV-injection-safe export, host input validation |
 | `src/secrets.js` | DPAPI-encrypted credential store |
 | `src/backup/index.js` | Backup manager: local auto backup, full backups, cloud schedule, retention, restore |
@@ -414,7 +489,7 @@ may be separated by `;`, `,` or spaces (quote the cell if it contains commas).
 | `src/telemetry.js` | Anonymous usage telemetry (queue, HTTPS upload, Faro format, policy) |
 | `renderer/index.html` | Markup, SVG icon sprite, CSP |
 | `renderer/css/style.css` | Design tokens (HSL, dark/light) and components |
-| `renderer/js/app.js` | UI logic (pages, live updates, modals, backup/telemetry UI) |
+| `renderer/js/app.js` | UI logic (pages, live updates, modals, alerts, domains, profile, backup/telemetry UI) |
 | `renderer/js/theme.js` | Applies the saved theme before first paint |
 | `server/telemetry-collector/` | Reference telemetry collection server (Node, no deps) + Dockerfile |
 
@@ -428,19 +503,21 @@ from `renderer/index.html` and logs failures. All channels except `auth:*`, `app
 
 | Group | Channels |
 |---|---|
-| Auth | `auth:needsSetup`, `auth:createFirstUser`, `auth:login`, `auth:logout`, `auth:currentUser`, `auth:changePassword` |
+| Auth | `auth:needsSetup`, `auth:createFirstUser` (optional `profile`), `auth:login`, `auth:logout`, `auth:currentUser`, `auth:changePassword`, `auth:updateProfile` |
 | Hosts | `hosts:list`, `hosts:add`, `hosts:update`, `hosts:delete`, `hosts:checkNow` |
 | Settings | `settings:get`, `settings:update` |
 | Data | `data:latestPerHost`, `data:recentChecks`, `data:history`, `data:uptimeSummary` |
 | Monitoring | `monitor:activity`, `monitor:checkAll` |
+| Alerts | `alerts:list`, `alerts:markRead`, `alerts:clear` |
 | DNS | `dns:servers`, `dns:lookup` |
+| Domains | `domains:lookup`, `domains:list`, `domains:add`, `domains:remove`, `domains:check` (an ID or `all`) |
 | Import/export | `transfer:export` (`hosts-json`, `hosts-csv`, `history-csv`), `transfer:import` |
 | Backup | `backup:status`, `backup:updateSettings`, `backup:setProvider`, `backup:connect`, `backup:disconnect`, `backup:test`, `backup:setPassphrase`, `backup:runLocal`, `backup:runCloud`, `backup:listCloud`, `backup:restore`, `backup:openFolder` |
 | Telemetry | `telemetry:status`, `telemetry:update`, `telemetry:preview`, `telemetry:sendNow` |
 | App | `app:info`, `app:openExternal` (devolity.com only), `app:openDataFolder`, `app:setTitleBarTheme`, `log:renderer` |
 
 Main-to-renderer push events: `monitor:result`, `monitor:activity`, `hosts:changed`,
-`transfer:progress`, `backup:progress`, `backup:changed`.
+`alerts:new`, `domains:changed`, `config:reloaded`, `transfer:progress`, `backup:progress`, `backup:changed`.
 
 ---
 
@@ -448,9 +525,10 @@ Main-to-renderer push events: `monitor:result`, `monitor:activity`, `hosts:chang
 
 ### 8.1 Automatic local backup (on by default)
 
-- After every **real** configuration change (hosts, settings, users), a snapshot
-  `devoping-config-<timestamp>.json` is written to `appdata/backup`. Changes are debounced by
-  5 s. Identical content is skipped; bookkeeping fields and auto-resolved IP changes are ignored.
+- After every **real** configuration change (hosts, domains, settings, users), a snapshot
+  `devoping-config-<timestamp>.json` is written to `devoping_data/backup`. Changes are debounced by
+  5 s. Identical content is skipped; bookkeeping fields (sign-in times and counts, domain check
+  results, telemetry send status) and auto-resolved IP changes are ignored.
 - A snapshot is also taken at startup (if changed), before every restore, and at shutdown if
   one is pending.
 - The last **N** snapshots are kept (default 30, configurable). **Full backup now** adds a
@@ -477,15 +555,16 @@ What a backup contains:
 | Item | Config snapshot (`devoping-config-*.json`) | Full backup | Encrypted full backup |
 |---|---|---|---|
 | Hosts (URLs, IPs, ports, ping fallback, intervals) | yes | yes | yes |
-| User accounts (bcrypt hashes) | yes | yes | yes |
-| All settings: retention, intervals, SSL thresholds, global DNS, theme, backup schedule/provider, usage-data switch | yes | yes | yes |
+| Domain watch list (with the last check results) | yes | yes | yes |
+| User accounts (bcrypt hashes) and profiles | yes | yes | yes |
+| All settings: retention, intervals, SSL and domain expiry thresholds, global DNS, theme, backup schedule/provider, usage-data switch | yes | yes | yes |
 | Check history (`monitoring.db`) | - | if "Include check history" | if "Include check history" |
 | Cloud credentials (S3 keys, Google/Microsoft sign-in) | - | - | yes |
 
 On restore, machine-specific bookkeeping stays from the restoring PC (last cloud-backup time,
 telemetry install ID). The backup passphrase is never stored in a backup. Without credentials
 in the backup, the provider settings are restored and you only need to sign in / re-enter keys.
-Not included: `policy.json` (administrator file next to the exe) and logs.
+Not included: `policy.json` (administrator file next to the exe), `alerts.json` and logs.
 
 #### Amazon S3 / S3-compatible
 
@@ -595,10 +674,12 @@ Faro collector URLs are designed to be public (no secret). When the endpoint is 
 the batch is converted to the Faro format (see 9.3); any other endpoint gets the generic JSON
 below (for the self-hosted server in 9.4).
 
-Upload schedule: first batch about **30 seconds** after start, then **every hour**, immediately
-after the switch is turned on, and once more when the app closes (max 3 s, so quitting never
-hangs). Failed uploads are retried with backoff (5 min doubling up to 24 h); the queue holds at
-most 500 events.
+Upload schedule (auto-submit): first batch about **10 seconds** after start, then **every 15
+minutes**. Every scheduled upload includes a fresh `usage` heartbeat event, even when no counters
+changed. Data is also sent immediately after the switch is turned on, and once more when the app
+closes (max 3 s, so quitting never hangs). Failed uploads are retried with backoff (5 min doubling
+up to 24 h); the queue holds at most 500 events. **Settings > Usage data** shows the interval, the
+last successful upload and the last error, if any.
 
 Generic format:
 
@@ -612,15 +693,16 @@ Generic format:
   "events": [
     { "name": "app_start", "ts": 1790000000000, "props": { "version": "1.0.0" } },
     { "name": "usage", "ts": 1790000000000, "props": {
-        "period_hours": 6, "hosts": 12, "hosts_enabled": 11, "hosts_with_url": 10, "hosts_with_ip": 12,
-        "hosts_with_ports": 4, "ports_monitored": 9, "global_dns": true, "cloud_backup": "s3",
+        "period_hours": 0.25, "hosts": 12, "hosts_enabled": 11, "hosts_with_url": 10, "hosts_with_ip": 12,
+        "hosts_with_ports": 4, "ports_monitored": 9, "domains_watched": 3, "global_dns": true, "cloud_backup": "s3",
         "check_https_ok": 830, "check_https_fail": 4, "check_ping_ok": 900, "check_tcp_ok": 640,
-        "feature_dns_lookup": 3, "feature_import": 1, "feature_backup_cloud": 1 } }
+        "feature_dns_lookup": 3, "feature_whois": 2, "feature_domain_watch": 1, "feature_import": 1, "feature_backup_cloud": 1 } }
   ]
 }
 ```
 
-**Never sent**: hostnames, URLs, IP addresses, usernames, error messages and file paths. This is
+**Never sent**: hostnames, URLs, IP addresses, domain names, usernames, profile details, error
+messages and file paths. This is
 enforced in `sanitizeProps()`, both in the app and on the server: only numbers, booleans and two
 allow-listed enums (`version`, `cloud_backup`) pass. To add a metric, call
 `telemetry.count('feature_xyz')` in the main process.
@@ -776,7 +858,10 @@ storage by design.
   validated (host fields, IDs, ranges, provider configs, endpoints).
 - **Process execution**: `ping.exe`, `nslookup`/`dig`/`host` are spawned **without a shell**,
   with validated arguments (no leading `-`).
-- **Network**: monitoring targets only, plus cloud backup (if configured) and anonymous telemetry over HTTPS.
+- **Network**: monitoring targets only, plus domain lookups (RDAP over HTTPS via `rdap.org`, which
+  may redirect only to HTTPS registry servers; WHOIS on TCP 43 to `whois.iana.org` and the
+  referred registry/registrar servers, validated hostnames, responses capped at 128 KB), cloud
+  backup (if configured) and anonymous telemetry over HTTPS.
   External links can only open `https://devolity.com`.
 - **Credentials**: user passwords use bcrypt (cost 10), lockout after 5 failures (30 s doubling
   to 15 min), and the same message and timing for unknown users. Cloud secrets are
@@ -792,10 +877,14 @@ storage by design.
 - Atomic writes (temp file, fsync, rename with retry for AV locks) for config, DB, backups and secrets.
 - `config.json` corruption: restore from `config.json.bak`, and never silently reset (which would wipe users).
 - `monitoring.db` corruption: quarantined (`*.corrupt-<time>`) and recreated.
-- DB writes are batched (at most 2 s delay) and flushed on exit.
+- DB writes are batched (at most 15 s delay, which keeps memory and CPU churn low) and flushed on exit.
 - Bounded check queue, 90 s watchdog per job, overall HTTP deadline, ping timeout.
+- Domain lookups time out after 12 s; the daily sweep checks domains one at a time with a short
+  pause (WHOIS rate limits), and a failed lookup keeps the last good expiry date.
 - Renderer auto-reloads after a crash; checks refresh after sleep/resume; single instance per data folder.
-- Logs: `appdata/logs/devoping.log` (2 MB x 3). Renderer errors are forwarded to the log.
+- While the window is minimised or hidden, the UI skips its periodic refresh and re-syncs when shown;
+  the Telnet console keeps only the last 200 KB of output.
+- Logs: `devoping_data/logs/devoping.log` (2 MB x 3). Renderer errors are forwarded to the log.
 
 ---
 
@@ -863,7 +952,9 @@ to `#port-presets` in `renderer/index.html`.
 
 This checkout does not currently include an automated test suite. Before release, validate the
 portable and ZIP builds on a clean Windows profile, confirm all runtime files land under
-`appdata/`, and exercise URL, ping, TCP-port, backup/restore and legacy-data migration workflows.
+`devoping_data/`, and exercise URL, ping, TCP-port, alerts (stop a monitored service and bring it
+back), WHOIS lookup and domain watch list (e.g. `example.com`, a `.co.uk` subdomain and an
+unregistered name), profile editing, backup/restore and legacy-data migration workflows.
 
 Google Drive and OneDrive need real OAuth credentials. Test them manually with the setup in
 section 8.2 (**Save provider > Connect > Test connection > Back up now > Restore**).
@@ -878,11 +969,16 @@ section 8.2 (**Save provider > Connect > Test connection > Back up now > Restore
 | Build fails: `spawn powershell.exe ENOENT` | Add `C:\Windows\System32\WindowsPowerShell\v1.0` to `PATH` (Git Bash/MSYS2) |
 | Build fails: winCodeSign "Cannot create symbolic link" | Enable Windows Developer Mode, or pre-extract the winCodeSign archive into `%LOCALAPPDATA%\electron-builder\Cache\winCodeSign\winCodeSign-2.6.0` |
 | Portable exe takes ~15 s to start the first time | Antivirus scans the new 100 MB exe; later starts are faster. Use the ZIP build to avoid %TEMP% extraction |
-| "Configuration file is damaged and no valid backup exists" | Restore a snapshot from `appdata/backup/` (copy its `config` object into `appdata/config.json`), or delete `appdata/config.json` to start over |
+| "Configuration file is damaged and no valid backup exists" | Restore a snapshot from `devoping_data/backup/` (copy it to `devoping_data/config.json`), or delete `devoping_data/config.json` to start over |
+| Copied `config.json` isn't used | Make sure it's in `devoping_data\` next to the exe you run (not an old `appdata\` folder). Check `logs\devoping.log` for "can't be read" or "contains no user accounts"; an unreadable copy is moved aside as `config.json.corrupt-<time>` |
 | Cloud credentials "can't be decrypted" after moving the folder | DPAPI ties them to the Windows user/PC: re-enter the keys / reconnect |
 | Encrypted backup won't restore | Set the same backup passphrase that was used to create it |
 | Telemetry switch is greyed out | Controlled by `policy.json`, `DEVOPING_TELEMETRY=0`, or the legacy `DEVOWATCH_TELEMETRY=0` |
-| Anything else | Check `appdata/logs/devoping.log` (Settings > Data > Open data folder) |
+| WHOIS lookup shows `WHOIS: ... timed out` / `ECONNREFUSED` | Outbound TCP port 43 is blocked (common on corporate networks). RDAP over HTTPS still works for most TLDs; ask IT to allow port 43 for the rest |
+| Domain shows "Lookup failed" or a `stale` tag | The registry didn't answer or rate-limited the request; the last good data is kept and the domain is retried after 1 hour. Hover the badge for the error |
+| Domain says "No registration data found" | The domain isn't registered, or its registry publishes neither RDAP nor WHOIS |
+| Too many alerts | Alerts fire only on state changes. Pause flapping hosts, or raise the SSL/domain thresholds in Settings |
+| Anything else | Check `devoping_data/logs/devoping.log` (Settings > Data > Open data folder) |
 
 ---
 

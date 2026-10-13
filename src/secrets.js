@@ -1,18 +1,18 @@
 // Credential store for cloud-backup secrets (S3 keys, OAuth refresh tokens, backup passphrase).
 // Values are encrypted with Electron safeStorage (Windows DPAPI: bound to the current Windows
-// user) and kept in appdata/secrets.json. They are never exported; they are only copied into
+// user) and kept in devoping_data/session/secrets.json. They are never exported; they are only copied into
 // passphrase-encrypted full backups (see backup/index.js).
 const fs = require('fs');
 const path = require('path');
 const { safeStorage } = require('electron');
-const { getDataDir } = require('./paths');
+const { getSessionDir } = require('./paths');
 const { writeFileAtomic } = require('./fsutil');
 const log = require('./logger');
 
 let cache = null;
 
 function filePath() {
-  return path.join(getDataDir(), 'secrets.json');
+  return path.join(getSessionDir(), 'secrets.json');
 }
 
 function load() {
