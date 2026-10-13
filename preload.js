@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('api', {
   // DNS tools
   dnsServers: () => ipcRenderer.invoke('dns:servers'),
   dnsLookup: (target, server) => ipcRenderer.invoke('dns:lookup', { target, server }),
+  dnsFlush: () => ipcRenderer.invoke('dns:flush'),
 
   // connectivity test + reports
   testConnectivity: (target, ports) => ipcRenderer.invoke('tools:test', { target, ports }),

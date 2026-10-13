@@ -3,7 +3,8 @@
 const dns = require('dns');
 const fs = require('fs');
 const net = require('net');
-const { spawn } = require('child_process');
+const path = require('path');
+const { spawn, execFile } = require('child_process');
 const dnsConfig = require('./dns-config');
 
 const DNS_SERVERS = {
@@ -233,4 +234,17 @@ function listServers() {
   return list;
 }
 
-module.exports = { lookup, listServers, normalizeTarget };
+// Clears the Windows DNS client (resolver) cache; does not require elevation.
+function flushCache() {
+  if (process.platform !== 'win32') return Promise.reject(new Error('Flushing the DNS cache is only supported on Windows'));
+  const ipconfig = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'ipconfig.exe');
+  return new Promise((resolve, reject) => {
+    execFile(ipconfig, ['/flushdns'], { windowsHide: true, timeout: 15000 }, (err, stdout, stderr) => {
+      const output = `${stdout || ''}${stderr || ''}`.trim();
+      if (err) reject(new Error(output || err.message));
+      else resolve({ output, flushedAt: new Date().toISOString() });
+    });
+  });
+}
+
+module.exports = { lookup, listServers, normalizeTarget, flushCache };

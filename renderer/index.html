@@ -88,6 +88,9 @@
         <button class="nav-item" data-tab="backup">
           <svg class="icon"><use href="#i-database" /></svg><span>Backup</span>
         </button>
+        <button class="nav-item" id="btn-flush-dns" title="Flush the Windows DNS resolver cache (ipconfig /flushdns)">
+          <svg class="icon"><use href="#i-zap" /></svg><span>DNS Flush</span>
+        </button>
         <button class="nav-item" data-tab="settings">
           <svg class="icon"><use href="#i-settings" /></svg><span>Settings</span>
         </button>
@@ -170,17 +173,17 @@
               </div>
             </div>
             <div class="table-wrap">
-              <table class="data-table" id="dashboard-table">
+              <table class="data-table" id="dashboard-table" data-sort-table="dashboard">
                 <thead>
                   <tr>
-                    <th>Status</th>
-                    <th>Host</th>
-                    <th>IP address</th>
-                    <th>HTTP</th>
-                    <th>Ping</th>
-                    <th>Ports</th>
-                    <th>SSL</th>
-                    <th>Last check</th>
+                    <th data-sort="status">Status</th>
+                    <th data-sort="name">Host</th>
+                    <th data-sort="ip">IP address</th>
+                    <th data-sort="http">HTTP</th>
+                    <th data-sort="ping">Ping</th>
+                    <th data-sort="ports">Ports</th>
+                    <th data-sort="ssl">SSL</th>
+                    <th data-sort="last">Last check</th>
                     <th class="col-actions"></th>
                   </tr>
                 </thead>
@@ -310,15 +313,15 @@
 
           <div class="card">
             <div class="table-wrap">
-              <table class="data-table" id="hosts-table">
+              <table class="data-table" id="hosts-table" data-sort-table="hosts">
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>URL</th>
-                    <th>IP address</th>
-                    <th>Ports</th>
-                    <th>Interval</th>
-                    <th>Enabled</th>
+                    <th data-sort="name">Name</th>
+                    <th data-sort="url">URL</th>
+                    <th data-sort="ip">IP address</th>
+                    <th data-sort="ports">Ports</th>
+                    <th data-sort="interval">Interval</th>
+                    <th data-sort="enabled">Enabled</th>
                     <th class="col-actions"></th>
                   </tr>
                 </thead>
@@ -521,8 +524,8 @@
               <p class="muted-small">The passphrase applies to full backups. Keep it safe: encrypted backups cannot be restored without it.</p>
             </div>
             <div class="table-wrap">
-              <table class="data-table">
-                <thead><tr><th>Backup</th><th>Type</th><th>Size</th><th>Created</th><th class="col-actions"></th></tr></thead>
+              <table class="data-table" data-sort-table="backup">
+                <thead><tr><th data-sort="name">Backup</th><th data-sort="kind">Type</th><th data-sort="size">Size</th><th data-sort="created">Created</th><th class="col-actions"></th></tr></thead>
                 <tbody id="backup-local-tbody"></tbody>
               </table>
             </div>
@@ -603,8 +606,8 @@
               <p class="error-text" id="domain-add-error"></p>
             </div>
             <div class="table-wrap">
-              <table class="data-table">
-                <thead><tr><th>Domain</th><th>Registrar</th><th>Registered</th><th>Expires</th><th>Status</th><th>Last check</th><th class="col-actions"></th></tr></thead>
+              <table class="data-table" data-sort-table="domains">
+                <thead><tr><th data-sort="name">Domain</th><th data-sort="registrar">Registrar</th><th data-sort="registered">Registered</th><th data-sort="expires">Expires</th><th data-sort="status">Status</th><th data-sort="last">Last check</th><th class="col-actions"></th></tr></thead>
                 <tbody id="domains-tbody"></tbody>
               </table>
               <div class="empty hidden" id="domains-empty">
@@ -709,6 +712,7 @@
     <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></symbol>
     <symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
     <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></symbol>
   </svg>
 
   <script src="js/app.js"></script>

@@ -444,6 +444,14 @@ function registerIpcHandlers(getMainWindow) {
     return dnsTools.lookup(target, server);
   });
 
+  handle('dns:flush', async () => {
+    requireAuth();
+    telemetry.count('feature_dns_flush');
+    const result = await dnsTools.flushCache();
+    log.info('Flushed the Windows DNS resolver cache');
+    return result;
+  });
+
   // ---- connectivity test tool ----
   handle('tools:test', async (_e, { target, ports } = {}) => {
     requireAuth();

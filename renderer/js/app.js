@@ -42,6 +42,7 @@
     alertToastTimer: null,
     domains: [],
     whoisLast: null,
+    sort: {}, // table -> { key, dir: 'asc' | 'desc' }
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -126,6 +127,67 @@
 
   function fmtLatency(ms) {
     return ms === null || ms === undefined ? '' : `${Math.round(ms)} ms`;
+  }
+
+  // ---------------- TABLE SORTING ----------------
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  const SORT_RENDERERS = {
+    dashboard: () => renderDashboard(),
+    hosts: () => renderHostsTable(),
+    domains: () => renderDomains(),
+    backup: () => renderBackup(),
+  };
+
+  // Sorts by the active column of `table`; empty values always go last, ties keep their original order.
+  function sortItems(table, items, getters) {
+    const s = state.sort[table];
+    const get = s && getters[s.key];
+    if (!get) return items;
+    const dir = s.dir === 'desc' ? -1 : 1;
+    const isEmpty = (v) => v === null || v === undefined || v === '';
+    return items
+      .map((item) => ({ item, v: get(item) }))
+      .sort((a, b) => {
+        const ae = isEmpty(a.v);
+        const be = isEmpty(b.v);
+        if (ae || be) return ae === be ? 0 : ae ? 1 : -1;
+        const c = typeof a.v === 'string' || typeof b.v === 'string' ? collator.compare(String(a.v), String(b.v)) : a.v - b.v;
+        return c * dir;
+      })
+      .map((x) => x.item);
+  }
+
+  function markSortHeaders(table) {
+    const s = state.sort[table];
+    $all(`table[data-sort-table="${table}"] th[data-sort]`).forEach((th) => {
+      const dir = s && s.key === th.dataset.sort ? s.dir : null;
+      th.classList.toggle('sort-asc', dir === 'asc');
+      th.classList.toggle('sort-desc', dir === 'desc');
+      th.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : dir === 'desc' ? 'descending' : 'none');
+    });
+  }
+
+  function wireSorting() {
+    $all('table[data-sort-table] th[data-sort]').forEach((th) => {
+      th.classList.add('sortable');
+      th.tabIndex = 0;
+      th.title = 'Sort';
+      const toggle = () => {
+        const table = th.closest('table').dataset.sortTable;
+        const cur = state.sort[table];
+        const dir = cur && cur.key === th.dataset.sort && cur.dir === 'asc' ? 'desc' : 'asc';
+        state.sort[table] = { key: th.dataset.sort, dir };
+        markSortHeaders(table);
+        SORT_RENDERERS[table]();
+      };
+      th.addEventListener('click', toggle);
+      th.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        toggle();
+      });
+    });
+    Object.keys(SORT_RENDERERS).forEach(markSortHeaders);
   }
 
   function toast(message, type = 'info', ms = 4500) {
@@ -220,6 +282,7 @@
     const firstInit = !state.uiWired;
     if (firstInit) {
       wireNavigation();
+      wireSorting();
       wireDashboard();
       wireHosts();
       wireTransfer();
@@ -281,7 +344,19 @@
   }
 
   function wireNavigation() {
-    $all('.nav-item').forEach((btn) => btn.addEventListener('click', () => setTab(btn.dataset.tab)));
+    $all('.nav-item[data-tab]').forEach((btn) => btn.addEventListener('click', () => setTab(btn.dataset.tab)));
+    $('#btn-flush-dns').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      try {
+        await window.api.dnsFlush();
+        toast('Windows DNS resolver cache flushed', 'success');
+      } catch (err) {
+        toast(`DNS flush failed: ${errMsg(err)}`, 'error', 7000);
+      } finally {
+        btn.disabled = false;
+      }
+    });
     $('#search').addEventListener('input', (e) => {
       state.search = e.target.value.trim().toLowerCase();
       renderAll();
@@ -449,7 +524,7 @@
     let sslWarn = 0;
     const warnDays = state.settings?.sslWarnDays ?? 30;
     const nextRuns = state.activity?.nextRuns || {};
-    const html = [];
+    const entries = [];
 
     state.hosts.forEach((host) => {
       const latest = state.latestByHost.get(host.id) || {};
@@ -466,11 +541,25 @@
       if (state.statusFilter === 'up' && base.cls !== 'up') return;
       if (state.statusFilter === 'issues' && base.cls !== 'down' && base.cls !== 'partial') return;
 
-      const status = liveStatus(host, base);
       const lastTs = Math.max(web?.timestamp || 0, ping?.timestamp || 0, ...ports.map((p) => p.row?.timestamp || 0)) || null;
+      entries.push({ host, web, ping, ports, base, lastTs });
+    });
+
+    const STATUS_RANK = { down: 0, partial: 1, pending: 2, up: 3, disabled: 4 };
+    const html = sortItems('dashboard', entries, {
+      status: (e) => STATUS_RANK[e.base.cls],
+      name: (e) => e.host.name,
+      ip: (e) => e.host.ip,
+      http: (e) => (e.host.url && e.web ? e.web.http_status || 0 : null),
+      ping: (e) => (e.ping && e.ping.is_up ? e.ping.latency_ms : null),
+      ports: (e) => (e.ports.length ? e.ports.filter((p) => p.row && p.row.is_up).length : null),
+      ssl: (e) => (e.web ? e.web.ssl_days_remaining : null),
+      last: (e) => e.lastTs,
+    }).map(({ host, web, ping, ports, base, lastTs }) => {
+      const status = liveStatus(host, base);
       const next = nextRuns[host.id];
       const isHttps = (host.url || '').startsWith('https');
-      html.push({ key: host.id, html: `
+      return { key: host.id, html: `
         <tr data-host="${escapeHtml(host.id)}">
           <td><span class="status ${status.cls}">${status.busy ? '<span class="spinner-xs"></span>' : '<span class="status-dot"></span>'}${escapeHtml(status.label)}</span></td>
           <td><div class="cell-main">${escapeHtml(host.name)}</div><div class="cell-sub mono">${escapeHtml(host.url || '')}</div></td>
@@ -486,7 +575,7 @@
             <button class="btn btn-ghost btn-sm" data-action="details">${icon('activity')}Details</button>
             <button class="btn btn-ghost btn-sm" data-action="dns">${icon('globe')}DNS</button>
           </td>
-        </tr>`.trim() });
+        </tr>`.trim() };
     });
 
     patchRows($('#dashboard-tbody'), html);
@@ -662,7 +751,15 @@
   }
 
   function renderHostsTable() {
-    const rows = state.hosts.filter(matchesSearch).map((host) => ({ key: host.id, html: `
+    const hosts = sortItems('hosts', state.hosts.filter(matchesSearch), {
+      name: (h) => h.name,
+      url: (h) => h.url,
+      ip: (h) => h.ip,
+      ports: (h) => hostPorts(h).length || null,
+      interval: (h) => h.intervalMinutes,
+      enabled: (h) => (h.enabled ? 1 : 0),
+    });
+    const rows = hosts.map((host) => ({ key: host.id, html: `
       <tr data-host="${escapeHtml(host.id)}">
         <td class="cell-main">${escapeHtml(host.name)}</td>
         <td class="mono">${escapeHtml(host.url || '-')}</td>
@@ -997,8 +1094,16 @@
   function renderDomains() {
     $('#nav-count-domains').textContent = state.domains.length;
     const q = state.search;
-    const rows = state.domains
-      .filter((d) => !q || [d.name, d.registrar].some((v) => (v || '').toLowerCase().includes(q)))
+    const dateVal = (iso) => (iso ? Date.parse(iso) : null);
+    const filtered = state.domains.filter((d) => !q || [d.name, d.registrar].some((v) => (v || '').toLowerCase().includes(q)));
+    const rows = sortItems('domains', filtered, {
+      name: (d) => d.name,
+      registrar: (d) => d.registrar,
+      registered: (d) => dateVal(d.createdAt),
+      expires: (d) => dateVal(d.expiresAt),
+      status: (d) => d.daysLeft,
+      last: (d) => dateVal(d.lastCheckedAt),
+    })
       .map((d) => ({ key: d.id, html: `
         <tr data-host="${escapeHtml(d.id)}">
           <td><div class="cell-main">${escapeHtml(d.name)}</div>${d.registeredName && d.registeredName !== d.name ? `<div class="cell-sub mono">${escapeHtml(d.registeredName)}</div>` : ''}</td>
@@ -1161,8 +1266,14 @@
     if (document.activeElement !== $('#backup-history')) $('#backup-history').checked = b.local.includeHistory;
     $('#backup-dir').textContent = b.local.dir;
     $('#backup-passphrase').placeholder = b.passphraseSet ? '•••••••• (set - full backups are encrypted)' : 'Not set - backups are compressed but not encrypted';
-    $('#backup-local-tbody').innerHTML = b.local.backups.length
-      ? b.local.backups.map((x) => `
+    const backups = sortItems('backup', b.local.backups, {
+      name: (x) => x.name,
+      kind: (x) => x.kind,
+      size: (x) => x.size,
+      created: (x) => Date.parse(x.modified),
+    });
+    $('#backup-local-tbody').innerHTML = backups.length
+      ? backups.map((x) => `
         <tr><td class="mono">${escapeHtml(x.name)}</td>
           <td><span class="badge ${x.kind === 'full' ? 'badge-up' : 'badge-muted'}">${x.kind === 'full' ? 'Full' : 'Config'}</span>${x.encrypted ? ` <span class="tag">${icon('lock')}encrypted</span>` : ''}</td>
           <td class="nowrap">${fmtBytes(x.size)}</td><td class="nowrap">${escapeHtml(fmtTime(Date.parse(x.modified)))}</td>

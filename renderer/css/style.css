@@ -541,6 +541,12 @@ input:focus, select:focus {
   background: hsl(var(--secondary) / 0.45);
   white-space: nowrap;
 }
+.data-table th.sortable { cursor: pointer; user-select: none; }
+.data-table th.sortable:hover, .data-table th.sort-asc, .data-table th.sort-desc { color: hsl(var(--foreground)); }
+.data-table th.sortable::after { content: '\2195'; margin-left: 5px; opacity: 0.35; }
+.data-table th.sort-asc::after { content: '\25B2'; opacity: 0.9; font-size: 9px; }
+.data-table th.sort-desc::after { content: '\25BC'; opacity: 0.9; font-size: 9px; }
+.data-table th.sortable:focus-visible { outline: 2px solid hsl(var(--primary) / 0.6); outline-offset: -2px; }
 .data-table tbody tr { transition: background-color 100ms ease; }
 .data-table tbody tr:hover { background: hsl(var(--foreground) / 0.035); }
 #dashboard-tbody tr { cursor: pointer; }
