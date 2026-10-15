@@ -232,8 +232,44 @@
     }
     const user = await window.api.currentUser();
     if (user) await initApp(user);
-    else show('view-login');
+    else showLogin();
   }
+
+  // The last username and preferred method are remembered so a PIN user only has to type the PIN.
+  const LOGIN_PREFS = { user: 'devoping-login-user', method: 'devoping-login-method' };
+
+  function setLoginMethod(method) {
+    const pin = method === 'pin';
+    $all('#login-method button').forEach((b) => b.classList.toggle('active', b.dataset.method === method));
+    $('#login-password-field').classList.toggle('hidden', pin);
+    $('#login-pin-field').classList.toggle('hidden', !pin);
+    // Disabled inputs are skipped by form validation, so only the visible one is required.
+    $('#login-password').disabled = pin;
+    $('#login-pin').disabled = !pin;
+    $('#login-pin').required = pin;
+    $('#login-error').textContent = '';
+  }
+
+  function showLogin() {
+    show('view-login');
+    const pin = localStorage.getItem(LOGIN_PREFS.method) === 'pin';
+    $('#login-username').value = localStorage.getItem(LOGIN_PREFS.user) || '';
+    $('#login-password').value = '';
+    $('#login-pin').value = '';
+    setLoginMethod(pin ? 'pin' : 'password');
+    if (!$('#login-username').value) $('#login-username').focus();
+    else (pin ? $('#login-pin') : $('#login-password')).focus();
+  }
+
+  function rememberLogin(user) {
+    localStorage.setItem(LOGIN_PREFS.user, user.username);
+    localStorage.setItem(LOGIN_PREFS.method, user.hasPin ? 'pin' : 'password');
+  }
+
+  $all('#login-method button').forEach((b) => b.addEventListener('click', () => {
+    setLoginMethod(b.dataset.method);
+    (b.dataset.method === 'pin' ? $('#login-pin') : $('#login-password')).focus();
+  }));
 
   $('#form-setup').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -247,10 +283,12 @@
       return;
     }
     try {
-      await initApp(await window.api.createFirstUser(username, p1, {
+      const user = await window.api.createFirstUser(username, p1, {
         displayName: $('#setup-display-name').value,
         email: $('#setup-email').value,
-      }));
+      });
+      rememberLogin(user);
+      await initApp(user);
     } catch (err) {
       errEl.textContent = errMsg(err);
     }
@@ -260,19 +298,27 @@
     e.preventDefault();
     const errEl = $('#login-error');
     errEl.textContent = '';
+    const username = $('#login-username').value.trim();
+    const usePin = !$('#login-pin').disabled;
     try {
-      await initApp(await window.api.login($('#login-username').value.trim(), $('#login-password').value));
+      const user = usePin
+        ? await window.api.loginWithPin(username, $('#login-pin').value)
+        : await window.api.login(username, $('#login-password').value);
+      rememberLogin(user);
+      await initApp(user);
     } catch (err) {
       errEl.textContent = errMsg(err);
+      if (usePin) {
+        $('#login-pin').value = '';
+        $('#login-pin').focus();
+      }
     }
   });
 
   $('#btn-logout').addEventListener('click', async () => {
     state.unsubscribers.splice(0).forEach((off) => off());
     await window.api.logout();
-    show('view-login');
-    $('#login-username').value = '';
-    $('#login-password').value = '';
+    showLogin();
   });
 
   // ---------------- MAIN APP INIT ----------------
@@ -863,6 +909,8 @@
     $('#settings-domain-critical').value = settings.domainCriticalDays ?? 7;
     $('#settings-dns').value = (settings.dnsServers || []).join(', ');
     markDnsPreset();
+    $('#notify-enabled').checked = settings.notifyEnabled !== false;
+    $('#notify-repeat').value = String(settings.notifyRepeatMinutes || 60);
   }
 
   function markDnsPreset() {
@@ -929,6 +977,61 @@
         errEl.textContent = errMsg(err);
       }
     });
+
+    $('#form-pin').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errEl = $('#pin-error');
+      errEl.textContent = '';
+      if ($('#pin-new').value !== $('#pin-new2').value) {
+        errEl.textContent = 'PINs do not match';
+        return;
+      }
+      try {
+        const user = await window.api.setPin($('#pin-password').value, $('#pin-new').value);
+        $('#form-pin').reset();
+        setProfile(user);
+        rememberLogin(user);
+        flash($('#pin-success'), 'PIN saved - choose "PIN" on the sign-in screen');
+      } catch (err) {
+        errEl.textContent = errMsg(err);
+      }
+    });
+
+    $('#btn-pin-remove').addEventListener('click', async () => {
+      $('#pin-error').textContent = '';
+      try {
+        const user = await window.api.removePin();
+        setProfile(user);
+        rememberLogin(user);
+        flash($('#pin-success'), 'PIN removed');
+      } catch (err) {
+        $('#pin-error').textContent = errMsg(err);
+      }
+    });
+
+    $('#form-notify').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      $('#notify-error').textContent = '';
+      try {
+        state.settings = await window.api.updateSettings({
+          notifyEnabled: $('#notify-enabled').checked,
+          notifyRepeatMinutes: $('#notify-repeat').value,
+        });
+        fillSettingsForm(state.settings);
+        flash($('#notify-success'), 'Saved');
+      } catch (err) {
+        $('#notify-error').textContent = errMsg(err);
+      }
+    });
+    $('#notify-enabled').addEventListener('change', () => $('#form-notify').requestSubmit());
+    $('#btn-notify-test').addEventListener('click', async () => {
+      $('#notify-error').textContent = '';
+      try {
+        await window.api.testNotification();
+      } catch (err) {
+        $('#notify-error').textContent = errMsg(err);
+      }
+    });
   }
 
   // ---------------- PROFILE ----------------
@@ -963,6 +1066,11 @@
       fact('Password changed', user.passwordChangedAt ? fmtIso(user.passwordChangedAt) : 'Never'),
       fact('Profile updated', user.profileUpdatedAt ? fmtIso(user.profileUpdatedAt) : 'Never'),
     ].join('');
+    $('#pin-status').textContent = user.hasPin
+      ? `PIN sign-in is on${user.pinSetAt ? ` (set ${fmtIso(user.pinSetAt)})` : ''}. Choose "PIN" on the sign-in screen. After 10 wrong PINs it is turned off automatically.`
+      : 'Set a 4-8 digit PIN to sign in quickly without typing your password. Your password keeps working.';
+    $('#pin-submit').textContent = user.hasPin ? 'Change PIN' : 'Set PIN';
+    $('#btn-pin-remove').classList.toggle('hidden', !user.hasPin);
   }
 
   function wireProfile() {

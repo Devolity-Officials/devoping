@@ -5,6 +5,9 @@ contextBridge.exposeInMainWorld('api', {
   needsSetup: () => ipcRenderer.invoke('auth:needsSetup'),
   createFirstUser: (username, password, profile) => ipcRenderer.invoke('auth:createFirstUser', { username, password, profile }),
   login: (username, password) => ipcRenderer.invoke('auth:login', { username, password }),
+  loginWithPin: (username, pin) => ipcRenderer.invoke('auth:loginPin', { username, pin }),
+  setPin: (password, pin) => ipcRenderer.invoke('auth:setPin', { password, pin }),
+  removePin: () => ipcRenderer.invoke('auth:removePin'),
   logout: () => ipcRenderer.invoke('auth:logout'),
   currentUser: () => ipcRenderer.invoke('auth:currentUser'),
   changePassword: (oldPassword, newPassword) => ipcRenderer.invoke('auth:changePassword', { oldPassword, newPassword }),
@@ -14,6 +17,7 @@ contextBridge.exposeInMainWorld('api', {
   listAlerts: () => ipcRenderer.invoke('alerts:list'),
   markAlertsRead: () => ipcRenderer.invoke('alerts:markRead'),
   clearAlerts: () => ipcRenderer.invoke('alerts:clear'),
+  testNotification: () => ipcRenderer.invoke('notify:test'),
 
   // domains (WHOIS / expiry)
   listDomains: () => ipcRenderer.invoke('domains:list'),

@@ -14,6 +14,7 @@ const report = require('./report');
 const telnet = require('./telnet');
 const telemetry = require('./telemetry');
 const alerts = require('./alerts');
+const notify = require('./notify');
 const domains = require('./domains');
 const log = require('./logger');
 const { getDataDir, getBackupDir } = require('./paths');
@@ -100,6 +101,8 @@ function validateSettings(partial) {
   if ('domainWarnDays' in partial) out.domainWarnDays = intSetting(partial.domainWarnDays, 1, 365, 'Domain warning threshold');
   if ('domainCriticalDays' in partial) out.domainCriticalDays = intSetting(partial.domainCriticalDays, 1, 365, 'Domain critical threshold');
   if ('dnsServers' in partial) out.dnsServers = dnsConfig.parseServers(partial.dnsServers);
+  if ('notifyEnabled' in partial) out.notifyEnabled = partial.notifyEnabled === true;
+  if ('notifyRepeatMinutes' in partial) out.notifyRepeatMinutes = intSetting(partial.notifyRepeatMinutes, 15, 1440, 'Notification reminder interval');
   if ('theme' in partial) {
     if (!['dark', 'light'].includes(partial.theme)) throw new Error('Invalid theme');
     out.theme = partial.theme;
@@ -177,6 +180,7 @@ function registerIpcHandlers(getMainWindow) {
   };
   monitor.setBroadcaster(send);
   alerts.setBroadcaster(send);
+  notify.init(getMainWindow);
   domains.setBroadcaster(send);
   telnet.init({ broadcast: send });
 
@@ -220,6 +224,23 @@ function registerIpcHandlers(getMainWindow) {
     return user;
   });
 
+  handle('auth:loginPin', async (_e, { username, pin } = {}) => {
+    const user = await auth.loginWithPin(username, pin);
+    currentUser = { username: user.username };
+    startSession();
+    return user;
+  });
+
+  handle('auth:setPin', (_e, { password, pin } = {}) => {
+    requireAuth();
+    return auth.setPin(currentUser.username, password, pin);
+  });
+
+  handle('auth:removePin', () => {
+    requireAuth();
+    return auth.removePin(currentUser.username);
+  });
+
   handle('auth:logout', () => {
     if (currentUser) log.info(`User "${currentUser.username}" signed out`);
     currentUser = null;
@@ -255,6 +276,11 @@ function registerIpcHandlers(getMainWindow) {
   handle('alerts:clear', () => {
     requireAuth();
     return alerts.clear();
+  });
+
+  handle('notify:test', () => {
+    requireAuth();
+    return notify.test();
   });
 
   // ---- domains (WHOIS / expiry) ----

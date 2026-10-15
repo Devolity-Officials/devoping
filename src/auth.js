@@ -7,6 +7,9 @@ const SALT_ROUNDS = 10;
 const MAX_FAILURES = 5;
 const BASE_LOCK_MS = 30 * 1000;
 const MAX_LOCK_MS = 15 * 60 * 1000;
+const PIN_RE = /^\d{4,8}$/;
+// A PIN has little entropy: after this many wrong PINs (across restarts) it is removed and the password is required.
+const MAX_PIN_FAILURES = 10;
 // Compared against when the user doesn't exist, so response time doesn't reveal valid usernames.
 const DUMMY_HASH = bcrypt.hashSync('devoping-dummy-password', SALT_ROUNDS);
 
@@ -37,11 +40,11 @@ function cleanProfile(patch = {}) {
   return out;
 }
 
-// Everything about the account except the password hash.
+// Everything about the account except the password and PIN hashes.
 function publicProfile(user) {
   if (!user) return null;
-  const { passwordHash, ...rest } = user;
-  return { role: 'Administrator', loginCount: 0, ...rest };
+  const { passwordHash, pinHash, pinFailures, ...rest } = user;
+  return { role: 'Administrator', loginCount: 0, ...rest, hasPin: Boolean(pinHash) };
 }
 
 function requireString(value, name, max) {
@@ -106,11 +109,69 @@ async function login(username, password) {
   }
   failures.delete(key);
   log.info(`User "${user.username}" signed in`);
+  return recordLogin(user);
+}
+
+function recordLogin(user, extra = {}) {
   return publicProfile(config.updateUser(user.username, {
     previousLoginAt: user.lastLoginAt || null,
     lastLoginAt: new Date().toISOString(),
     loginCount: (Number(user.loginCount) || 0) + 1,
+    ...extra,
   }));
+}
+
+async function loginWithPin(username, pin) {
+  requireString(username, 'Username', 64);
+  if (typeof pin !== 'string' || !PIN_RE.test(pin)) throw new Error('PIN must be 4-8 digits');
+  const key = `pin|${username.toLowerCase()}`;
+  assertNotLocked(key);
+  const user = config.findUser(username);
+  const ok = await bcrypt.compare(pin, user && user.pinHash ? user.pinHash : DUMMY_HASH);
+  if (!user || !user.pinHash || !ok) {
+    recordFailure(key);
+    log.warn(`Failed PIN sign-in for "${username}"`);
+    if (user && user.pinHash) {
+      const count = (Number(user.pinFailures) || 0) + 1;
+      if (count >= MAX_PIN_FAILURES) {
+        config.updateUser(user.username, { pinHash: undefined, pinFailures: undefined });
+        log.warn(`PIN sign-in disabled for "${user.username}" after ${count} wrong PINs`);
+        throw new Error('Too many wrong PINs. PIN sign-in has been turned off - sign in with your password.');
+      }
+      config.updateUser(user.username, { pinFailures: count });
+    }
+    throw new Error('Invalid username or PIN');
+  }
+  failures.delete(key);
+  log.info(`User "${user.username}" signed in with PIN`);
+  return recordLogin(user, { pinFailures: undefined });
+}
+
+// Setting or changing the PIN requires the account password.
+async function setPin(username, password, pin) {
+  requireString(password, 'Password', 128);
+  if (typeof pin !== 'string' || !PIN_RE.test(pin)) throw new Error('PIN must be 4-8 digits');
+  if (/^(\d)\1+$/.test(pin) || '0123456789'.includes(pin) || '9876543210'.includes(pin)) {
+    throw new Error('Choose a less predictable PIN (no repeated or sequential digits)');
+  }
+  const key = username.toLowerCase();
+  assertNotLocked(key);
+  const user = config.findUser(username);
+  if (!user) throw new Error('User not found');
+  if (!(await bcrypt.compare(password, user.passwordHash))) {
+    recordFailure(key);
+    throw new Error('Password is incorrect');
+  }
+  const pinHash = await bcrypt.hash(pin, SALT_ROUNDS);
+  log.info(`PIN sign-in ${user.pinHash ? 'changed' : 'enabled'} for "${user.username}"`);
+  return publicProfile(config.updateUser(user.username, { pinHash, pinFailures: undefined, pinSetAt: new Date().toISOString() }));
+}
+
+function removePin(username) {
+  const user = config.findUser(username);
+  if (!user) throw new Error('User not found');
+  log.info(`PIN sign-in removed for "${user.username}"`);
+  return publicProfile(config.updateUser(user.username, { pinHash: undefined, pinFailures: undefined, pinSetAt: undefined }));
 }
 
 async function changePassword(username, oldPassword, newPassword) {
@@ -143,4 +204,4 @@ function updateProfile(username, patch) {
   return publicProfile(config.updateUser(username, { ...details, profileUpdatedAt: new Date().toISOString() }));
 }
 
-module.exports = { needsSetup, createFirstUser, login, changePassword, getProfile, updateProfile };
+module.exports = { needsSetup, createFirstUser, login, loginWithPin, setPin, removePin, changePassword, getProfile, updateProfile };

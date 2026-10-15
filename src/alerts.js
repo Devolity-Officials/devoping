@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const config = require('./config');
 const log = require('./logger');
+const notify = require('./notify');
 const { getDataDir } = require('./paths');
 const { writeFileAtomic } = require('./fsutil');
 
@@ -53,13 +54,15 @@ function setBroadcaster(fn) {
   broadcastFn = fn;
 }
 
-function add({ severity, title, message = '', hostId = null, domainId = null }) {
+// `notifyKey` names the underlying problem so desktop reminders for it are spaced out.
+function add({ severity, title, message = '', hostId = null, domainId = null, notifyKey = null }) {
   const alert = { id: crypto.randomUUID(), ts: Date.now(), severity, title, message, hostId, domainId, read: false };
   const list = load();
   list.unshift(alert);
   if (list.length > MAX_ALERTS) list.length = MAX_ALERTS;
   persist();
   broadcastFn('alerts:new', alert);
+  notify.show(alert, notifyKey);
   return alert;
 }
 
@@ -108,11 +111,15 @@ function seed(latestRows) {
 function recordHostResults(host, rows) {
   const down = [];
   const recovered = [];
+  const failing = [];
+  const hostKey = `host:${host.id}`;
+  const sslKey = `ssl:${host.id}`;
   for (const row of rows) {
     const key = stateKey(row);
     const prev = lastState.get(key);
     const up = Boolean(row.is_up);
     lastState.set(key, up);
+    if (!up) failing.push(`${checkLabel(row)}: ${row.error || 'no response'}`);
     if (!up && prev !== false) down.push(`${checkLabel(row)}: ${row.error || 'no response'}`);
     else if (up && prev === false) recovered.push(checkLabel(row));
 
@@ -120,28 +127,31 @@ function recordHostResults(host, rows) {
     if (level) {
       const prevLevel = sslLevels.get(host.id) || 'ok';
       sslLevels.set(host.id, level);
-      if (LEVEL_RANK[level] > LEVEL_RANK[prevLevel]) {
-        add({
-          severity: level === 'warning' ? 'warning' : 'danger',
-          title: `${host.name}: SSL ${level === 'expired' ? 'certificate expired' : 'expiring soon'}`,
-          message: level === 'expired' ? 'The certificate is no longer valid' : `${row.ssl_days_remaining} day(s) left`,
-          hostId: host.id,
-        });
-      }
+      const title = `${host.name}: SSL ${level === 'expired' ? 'certificate expired' : 'expiring soon'}`;
+      const message = level === 'expired' ? 'The certificate is no longer valid' : `${row.ssl_days_remaining} day(s) left`;
+      const severity = level === 'warning' ? 'warning' : 'danger';
+      if (LEVEL_RANK[level] > LEVEL_RANK[prevLevel]) add({ severity, title, message, hostId: host.id, notifyKey: sslKey });
+      else if (level !== 'ok') notify.remind(sslKey, { severity, title, message }, notify.EXPIRY_REPEAT_MS);
+      else notify.resolve(sslKey);
     }
   }
+  const allDown = rows.every((r) => !r.is_up);
   if (down.length) {
-    const allDown = rows.every((r) => !r.is_up);
-    add({ severity: 'danger', title: `${host.name} ${allDown ? 'is down' : 'has failing checks'}`, message: down.join(' · '), hostId: host.id });
+    add({ severity: 'danger', title: `${host.name} ${allDown ? 'is down' : 'has failing checks'}`, message: down.join(' · '), hostId: host.id, notifyKey: hostKey });
+  } else if (failing.length) {
+    notify.remind(hostKey, { severity: 'danger', title: `${host.name} ${allDown ? 'is still down' : 'still has failing checks'}`, message: failing.join(' · ') });
   }
   if (recovered.length) {
     add({ severity: 'success', title: `${host.name} recovered`, message: `${recovered.join(', ')} responding again`, hostId: host.id });
   }
+  if (!failing.length) notify.resolve(hostKey);
 }
 
 function forgetHost(hostId) {
   for (const key of [...lastState.keys()]) if (key.startsWith(`${hostId}|`)) lastState.delete(key);
   sslLevels.delete(hostId);
+  notify.resolve(`host:${hostId}`);
+  notify.resolve(`ssl:${hostId}`);
 }
 
 module.exports = { setBroadcaster, add, list, markRead, clear, flush, seed, recordHostResults, forgetHost, expiryLevel, LEVEL_RANK };

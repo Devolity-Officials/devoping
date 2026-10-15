@@ -17,6 +17,8 @@ const DEFAULT_CONFIG = {
     domainWarnDays: 30,
     domainCriticalDays: 7,
     dnsServers: [],
+    notifyEnabled: true,
+    notifyRepeatMinutes: 60,
   },
   hosts: [],
   domains: [],

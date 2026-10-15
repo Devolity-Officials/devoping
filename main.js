@@ -5,6 +5,8 @@ const log = require('./src/logger');
 const paths = require('./src/paths');
 
 paths.configurePortableData();
+// Windows toast notifications are attributed to this ID (shown as the sender name).
+if (process.platform === 'win32') app.setAppUserModelId('Devoping');
 
 // Lean footprint: a simple dashboard doesn't need the GPU process, a spare pre-spawned renderer
 // or V8's speed-over-memory heuristics.

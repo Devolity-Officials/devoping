@@ -58,11 +58,18 @@
       <img src="img/icon.png" alt="" class="auth-logo" />
       <h1>Devoping</h1>
       <p class="muted">Sign in to continue.</p>
+      <div class="segmented login-method" id="login-method">
+        <button type="button" data-method="password" class="active">Password</button>
+        <button type="button" data-method="pin">PIN</button>
+      </div>
       <label>Username
         <input type="text" id="login-username" required autocomplete="username" />
       </label>
-      <label>Password
+      <label id="login-password-field">Password
         <input type="password" id="login-password" required autocomplete="current-password" />
+      </label>
+      <label id="login-pin-field" class="hidden">PIN
+        <input type="password" id="login-pin" inputmode="numeric" pattern="\d{4,8}" minlength="4" maxlength="8" autocomplete="off" title="4-8 digits" disabled />
       </label>
       <p class="error-text" id="login-error"></p>
       <button type="submit" class="btn btn-primary">Sign In</button>
@@ -469,6 +476,56 @@
               <div class="form-actions">
                 <button type="submit" class="btn btn-primary">Update password</button>
                 <span class="success-text" id="pw-success"></span>
+              </div>
+            </form>
+
+            <form id="form-pin" class="card settings-card">
+              <div class="card-head"><h2><svg class="icon"><use href="#i-lock" /></svg>PIN sign-in</h2></div>
+              <p class="muted-small" id="pin-status"></p>
+              <label>Current password
+                <input type="password" id="pin-password" required autocomplete="current-password" />
+              </label>
+              <div class="form-pair">
+                <label>New PIN (4-8 digits)
+                  <input type="password" id="pin-new" required inputmode="numeric" pattern="\d{4,8}" minlength="4" maxlength="8" autocomplete="off" />
+                </label>
+                <label>Confirm PIN
+                  <input type="password" id="pin-new2" required inputmode="numeric" pattern="\d{4,8}" minlength="4" maxlength="8" autocomplete="off" />
+                </label>
+              </div>
+              <p class="error-text" id="pin-error"></p>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary" id="pin-submit">Set PIN</button>
+                <button type="button" class="btn btn-ghost hidden" id="btn-pin-remove">Remove PIN</button>
+                <span class="success-text" id="pin-success"></span>
+              </div>
+            </form>
+
+            <form id="form-notify" class="card settings-card">
+              <div class="card-head">
+                <h2><svg class="icon"><use href="#i-activity" /></svg>Desktop notifications</h2>
+                <label class="switch-label" title="Show Windows notifications for alerts">
+                  <input type="checkbox" id="notify-enabled" /><span class="switch"></span>
+                </label>
+              </div>
+              <p class="muted-small">Windows notifications for hosts going down or recovering and for expiring SSL certificates or domains.
+                While a host stays down you are reminded at the interval below; expiry warnings repeat once a day.</p>
+              <label>Remind about ongoing problems every
+                <select id="notify-repeat">
+                  <option value="15">15 minutes</option>
+                  <option value="30">30 minutes</option>
+                  <option value="60">1 hour</option>
+                  <option value="120">2 hours</option>
+                  <option value="240">4 hours</option>
+                  <option value="720">12 hours</option>
+                  <option value="1440">24 hours</option>
+                </select>
+              </label>
+              <p class="error-text" id="notify-error"></p>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Save</button>
+                <button type="button" class="btn btn-ghost" id="btn-notify-test">Send test</button>
+                <span class="success-text" id="notify-success"></span>
               </div>
             </form>
 

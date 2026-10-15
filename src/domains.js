@@ -4,6 +4,7 @@
 const net = require('net');
 const config = require('./config');
 const alerts = require('./alerts');
+const notify = require('./notify');
 const log = require('./logger');
 const { normalizeTarget } = require('./dns-tools');
 
@@ -252,16 +253,18 @@ async function check(id) {
     }
     const level = levelOf(res.daysLeft) || 'ok';
     const prevLevel = entry.alertLevel || 'ok';
+    const notifyKey = `domain:${id}`;
+    const title = `${entry.name} ${level === 'expired' ? 'has expired' : 'expires soon'}`;
+    const message = res.expiresAt ? `Expiry date ${res.expiresAt.slice(0, 10)} (${res.daysLeft} day(s) left)` : '';
+    const severity = level === 'warning' ? 'warning' : 'danger';
     if (alerts.LEVEL_RANK[level] > alerts.LEVEL_RANK[prevLevel]) {
-      alerts.add({
-        severity: level === 'warning' ? 'warning' : 'danger',
-        title: `${entry.name} ${level === 'expired' ? 'has expired' : 'expires soon'}`,
-        message: res.expiresAt ? `Expiry date ${res.expiresAt.slice(0, 10)} (${res.daysLeft} day(s) left)` : '',
-        domainId: id,
-      });
+      alerts.add({ severity, title, message, domainId: id, notifyKey });
     } else if (prevLevel !== 'ok' && level === 'ok') {
       alerts.add({ severity: 'success', title: `${entry.name} renewed`, message: `New expiry date ${res.expiresAt.slice(0, 10)}`, domainId: id });
+    } else if (level !== 'ok') {
+      notify.remind(notifyKey, { severity, title, message }, notify.EXPIRY_REPEAT_MS);
     }
+    if (level === 'ok') notify.resolve(notifyKey);
     return config.updateDomain(id, {
       registeredName: res.domain,
       registrar: res.registrar,

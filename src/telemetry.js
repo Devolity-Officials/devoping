@@ -13,6 +13,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const { net } = require('electron');
 const config = require('./config');
 const log = require('./logger');
 const { getSessionDir, getInstallDir } = require('./paths');
@@ -214,7 +215,8 @@ async function flush({ force = false, heartbeat = false, timeoutMs = 15000 } = {
   sending = true;
   const faro = FARO_RE.test(eff.endpoint);
   try {
-    const res = await fetch(eff.endpoint, {
+    // Chromium's network stack honours the Windows cert store and system proxy (Node's fetch does not).
+    const res = await net.fetch(eff.endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -230,7 +232,8 @@ async function flush({ force = false, heartbeat = false, timeoutMs = 15000 } = {
     nextAttemptAt = 0;
     saveSettings({ lastSentAt: new Date().toISOString(), lastResult: `Sent ${events.length} event(s)` });
     return { sent: events.length };
-  } catch (err) {
+  } catch (e) {
+    const err = e.cause && e.cause.code ? new Error(`${e.message}: ${e.cause.code}`) : e;
     backoffMs = Math.min(backoffMs ? backoffMs * 2 : 5 * 60 * 1000, MAX_BACKOFF_MS);
     nextAttemptAt = Date.now() + backoffMs;
     saveSettings({ lastResult: `Upload failed (${err.message}); retrying later` });
